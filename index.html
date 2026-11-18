@@ -352,9 +352,9 @@ if (typeof module !== "undefined") module.exports = { CFG, sunPos, compass, clea
 </script>
 <script>
 // ===== UI =====
-const APP_VERSION = "1.6 · 18 Nov";
-// Live OpenStreetMap lookup timed out on every Overpass mirror from the user's iPhone (v1.2–v1.5); off until a reliable source is found
-const LIVE_MAP = false;
+const APP_VERSION = "1.7 · 18 Nov";
+// Open ground comes from places.json (prebuilt from OpenStreetMap); live Overpass calls timed out from iPhone in v1.2–v1.5
+const LIVE_MAP = true;
 const $ = id => document.getElementById(id);
 const PRE = "ll_";
 const store = {
@@ -420,32 +420,26 @@ function pickMySpot(sunAz) {
   const best = pickOpenSpace(els, S.loc.lat, S.loc.lon, sunAz, S.walk * 45);
   return best;
 }
-const OVERPASS = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter", "https://overpass.private.coffee/api/interpreter"];
-async function overpass(q) {
-  // query all mirrors in parallel; first good answer wins; 20 s cap
-  const ac = new AbortController(), to = setTimeout(() => ac.abort(), 20000);
-  const errs = [];
-  // GET (simple CORS request, no body) — POST timed out on iOS Safari against all mirrors
-  const tries = OVERPASS.map(url => fetch(url + "?data=" + encodeURIComponent(q), { signal: ac.signal, cache: "no-store" })
-    .then(r => r.ok ? r.json() : Promise.reject(new Error(new URL(url).host + " HTTP " + r.status)))
-    .catch(e => { errs.push(e.name === "AbortError" ? new URL(url).host + " timeout" : (e.message || String(e))); throw e; }));
-  try { const j = await Promise.any(tries); ac.abort(); return j; }
-  catch (e) { throw new Error(errs.join("; ") || "map service unreachable"); }
-  finally { clearTimeout(to); }
+// Open-ground data is prebuilt from OpenStreetMap by a monthly GitHub Action (places.json, same site)
+const KIND_TAGS = { w: { natural: "water" }, b: { natural: "beach" }, p: { leisure: "park" }, r: { leisure: "nature_reserve" }, g: { leisure: "recreation_ground" }, m: { landuse: "meadow" }, f: { landuse: "farmland" } };
+let PLACES = null;
+async function loadPlacesData() {
+  if (PLACES) return PLACES;
+  const ac = new AbortController(), to = setTimeout(() => ac.abort(), 15000);
+  try {
+    const r = await fetch("places.json", { signal: ac.signal });
+    if (!r.ok) throw new Error("places.json HTTP " + r.status);
+    PLACES = await r.json(); return PLACES;
+  } finally { clearTimeout(to); }
 }
 async function fetchPlaces(lat, lon) {
-  const key = `${lat.toFixed(3)},${lon.toFixed(3)}`, cache = store.get("places3") || {};
-  if (cache[key] && Date.now() - cache[key].t < 7 * 864e5) return cache[key].els;
-  const r = 1000, a = `(around:${r},${lat},${lon})`;
-  // ways only: relation look-ups with "around" are expensive and were making the servers time out (HTTP 502)
-  const body = `(way["leisure"~"^(park|nature_reserve|recreation_ground)$"]${a};way["natural"~"^(water|beach|grassland|heath)$"]${a};way["landuse"~"^(meadow|grass|farmland)$"]${a};);`;
-  let j;
-  try { j = await overpass(`[out:json][timeout:20];${body}out tags bb 120;`); }          // bounding boxes (nearest edge)
-  catch (e) { j = await overpass(`[out:json][timeout:20];${body}out tags center 120;`); } // fallback: centres only
-  const els = (j.elements || []).map(e => ({ bounds: e.bounds || null, center: e.center || (e.lat ? { lat: e.lat, lon: e.lon } : null), tags: e.tags }));
-  const keys = Object.keys(cache); if (keys.length > 15) delete cache[keys[0]];
-  cache[key] = { t: Date.now(), els }; store.set("places4", cache);
-  return els;
+  const P = await loadPlacesData();
+  const [s0, w0, n0, e0] = P.bbox;
+  if (lat < s0 || lat > n0 || lon < w0 || lon > e0) { const e = new Error("outside"); e.outside = true; throw e; }
+  const dLat = 1500 / 111320, dLon = 1500 / (111320 * Math.cos(lat * Math.PI / 180));
+  return P.items
+    .filter(([a, b, c, d]) => c >= lat - dLat && a <= lat + dLat && d >= lon - dLon && b <= lon + dLon)
+    .map(([a, b, c, d, k, name]) => ({ bounds: { minlat: a, minlon: b, maxlat: c, maxlon: d }, tags: { ...KIND_TAGS[k], ...(name ? { name } : {}) } }));
 }
 
 // ---- render ----
@@ -482,7 +476,8 @@ function render() {
     const mineTxt = mine ? `☀️ Your spot that way: <b>${esc(mine.name)}</b>, ${Math.round(mine.dm / 10) * 10} m ${compass(mine.b)}.<br>` : "";
     const live = pl === undefined || pl === "loading" ? `<span class="spin"></span> checking the map…`
       : pl && pl.err === "approx" ? `Location is approximate (±${Math.round(S.loc.acc / 1000)} km) — turn on Precise Location for Safari.`
-      : pl && pl.err === "net" ? (mine ? "" : `Map lookup unavailable. Save open, sunny places you know with “Save this spot” below.`) + ` <span style="font-size:11px;opacity:.6">(map: ${esc(pl.msg)})</span>`
+      : pl && pl.err === "outside" ? (mine ? "" : `Map data covers Copenhagen–Hørsholm only — save open, sunny places here with “Save this spot”.`)
+      : pl && pl.err === "net" ? (mine ? "" : `Map data didn't load — try refresh.`) + ` <span style="font-size:11px;opacity:.6">(${esc(pl.msg)})</span>`
       : pl ? `Map: open ${pl.kind === "open ground" ? "ground" : pl.kind} that way — <b>${esc(pl.name || "unnamed " + pl.kind)}</b>, ${Math.round(pl.dm / 10) * 10} m ${compass(pl.b)}.`
       : mine ? "" : `No saved spot that way yet — when you find an open, sunny place, save it below.`;
     const where = mineTxt + live;
@@ -523,7 +518,8 @@ async function loadPlace(d, b) {
   try {
     const els = await fetchPlaces(S.loc.lat, S.loc.lon);
     S.place[key] = pickOpenSpace(els, S.loc.lat, S.loc.lon, b.sunAz, S.walk * 35);
-  } catch (e) { S.place[key] = { err: "net", msg: (e && e.message) || "" }; }
+    renderFoot();
+  } catch (e) { S.place[key] = e && e.outside ? { err: "outside" } : { err: "net", msg: (e && e.message) || "" }; }
   if (S.res) render();
 }
 // ---- logbook ----
@@ -599,7 +595,7 @@ function recompute() {
 }
 function renderFoot() {
   const t = S.fetchedAt ? new Date(S.fetchedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—";
-  $("foot").innerHTML = `<b>Lunch Light v${APP_VERSION}</b><br>Forecast updated ${t} · <a href="#" id="rf">refresh</a><br>Weather: <a href="https://open-meteo.com/">Open-Meteo</a> (DMI, MET Norway, DWD, ECMWF; CC BY 4.0)`;
+  $("foot").innerHTML = `<b>Lunch Light v${APP_VERSION}</b><br>Forecast updated ${t} · <a href="#" id="rf">refresh</a><br>Weather: <a href="https://open-meteo.com/">Open-Meteo</a> (DMI, MET Norway, DWD, ECMWF; CC BY 4.0) · Places: © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors${PLACES ? ` (${PLACES.generated})` : ""}`;
   $("rf").onclick = e => { e.preventDefault(); refresh(S.loc && S.loc.src === "fmc" ? "fmc" : "gps"); };
 }
 async function refresh(mode) {
