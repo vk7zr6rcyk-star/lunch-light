@@ -29,6 +29,24 @@ def ring_area_m2(ring):
         s += (x1 * kx) * (y2 * ky) - (x2 * kx) * (y1 * ky)
     return abs(s) / 2
 
+def boundary_samples(rs):
+    """Points ON the outline (every ~150 m, 4–40 per feature) so the app can route to the real edge, not a bounding-box corner."""
+    out = []
+    lat0 = math.radians(rs[0][0][1]); kx, ky = 111320 * math.cos(lat0), 111320
+    for ring in rs:
+        seg = [math.hypot((x2 - x1) * kx, (y2 - y1) * ky) for (x1, y1), (x2, y2) in zip(ring, ring[1:])]
+        per = sum(seg)
+        if per <= 0: continue
+        n = max(4, min(40, int(per / 150)))
+        step, acc, i, target = per / n, 0.0, 0, 0.0
+        for j in range(n):
+            target = j * step
+            while i < len(seg) - 1 and acc + seg[i] < target: acc += seg[i]; i += 1
+            f = 0 if seg[i] == 0 else (target - acc) / seg[i]
+            (x1, y1), (x2, y2) = ring[i], ring[i + 1]
+            out += [round(y1 + (y2 - y1) * f, 5), round(x1 + (x2 - x1) * f, 5)]
+    return out
+
 def build(lines):
     out, seen = [], set()
     for line in lines:
@@ -43,8 +61,8 @@ def build(lines):
         area = sum(ring_area_m2(r) for r in rs)
         if area < (2000 if named and k in "wpbr" else 8000): continue  # drop verges and tiny lawns
         xs = [p[0] for r in rs for p in r]; ys = [p[1] for r in rs for p in r]
-        item = [round(min(ys), 5), round(min(xs), 5), round(max(ys), 5), round(max(xs), 5), k, t.get("name", "")]
-        key = tuple(item)
+        item = [round(min(ys), 5), round(min(xs), 5), round(max(ys), 5), round(max(xs), 5), k, t.get("name", ""), boundary_samples(rs)]
+        key = tuple(item[:6])
         if key in seen: continue
         seen.add(key); out.append(item)
     return {"generated": datetime.date.today().isoformat(), "bbox": list(BBOX),
