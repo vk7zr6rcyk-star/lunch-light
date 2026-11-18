@@ -93,6 +93,7 @@ select{font:inherit;color:inherit;background:var(--chip);border:0;border-radius:
   <div class="loc row" id="loc"></div>
   <div class="tabs" id="tabs"></div>
   <div id="main"><div class="card muted"><span class="spin"></span> Getting your location and the forecast…</div></div>
+  <div class="card" id="spotCard"></div>
   <div class="card" id="logCard"></div>
   <div class="foot" id="foot"></div>
 </div>
@@ -351,7 +352,7 @@ if (typeof module !== "undefined") module.exports = { CFG, sunPos, compass, clea
 </script>
 <script>
 // ===== UI =====
-const APP_VERSION = "1.4 · 18 Nov";
+const APP_VERSION = "1.5 · 18 Nov";
 const $ = id => document.getElementById(id);
 const PRE = "ll_";
 const store = {
@@ -377,7 +378,7 @@ async function locate(force) {
   let l = force === "fmc" ? null : await getGPS();
   if (!l) { const f = fmc(); l = { lat: f.lat, lon: f.lon, src: "fmc", label: f.label || "FMC" }; if (force !== "fmc") toast("No GPS — using FMC preset"); }
   else store.set("lastGps", l);
-  S.loc = l; renderLoc(); return l;
+  S.loc = l; renderLoc(); if (S.res) renderSpots(); return l;
 }
 function renderLoc() {
   const l = S.loc; if (!l) return;
@@ -409,12 +410,21 @@ async function fetchForecast(lat, lon) {
   if (!Object.keys(data.models).length) throw new Error("No forecast models responded");
   return data;
 }
+const esc = t => String(t ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+function pickMySpot(sunAz) {
+  const spots = store.get("spots") || []; if (!S.loc || !spots.length) return null;
+  const els = spots.map(p => ({ center: { lat: p.lat, lon: p.lon }, tags: { name: p.name } }));
+  // own spots: allow a bit more distance and angle than map features
+  const best = pickOpenSpace(els, S.loc.lat, S.loc.lon, sunAz, S.walk * 45);
+  return best;
+}
 const OVERPASS = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter", "https://overpass.private.coffee/api/interpreter"];
 async function overpass(q) {
   // query all mirrors in parallel; first good answer wins; 20 s cap
   const ac = new AbortController(), to = setTimeout(() => ac.abort(), 20000);
   const errs = [];
-  const tries = OVERPASS.map(url => fetch(url, { method: "POST", body: "data=" + encodeURIComponent(q), headers: { "Content-Type": "application/x-www-form-urlencoded" }, signal: ac.signal })
+  // GET (simple CORS request, no body) — POST timed out on iOS Safari against all mirrors
+  const tries = OVERPASS.map(url => fetch(url + "?data=" + encodeURIComponent(q), { signal: ac.signal, cache: "no-store" })
     .then(r => r.ok ? r.json() : Promise.reject(new Error(new URL(url).host + " HTTP " + r.status)))
     .catch(e => { errs.push(e.name === "AbortError" ? new URL(url).host + " timeout" : (e.message || String(e))); throw e; }));
   try { const j = await Promise.any(tries); ac.abort(); return j; }
@@ -432,7 +442,7 @@ async function fetchPlaces(lat, lon) {
   catch (e) { j = await overpass(`[out:json][timeout:20];${body}out tags center 120;`); } // fallback: centres only
   const els = (j.elements || []).map(e => ({ bounds: e.bounds || null, center: e.center || (e.lat ? { lat: e.lat, lon: e.lon } : null), tags: e.tags }));
   const keys = Object.keys(cache); if (keys.length > 15) delete cache[keys[0]];
-  cache[key] = { t: Date.now(), els }; store.set("places3", cache);
+  cache[key] = { t: Date.now(), els }; store.set("places4", cache);
   return els;
 }
 
@@ -466,10 +476,14 @@ function render() {
   let tip = "";
   if (b.sunEl > 0) {
     const pl = S.place[d.date + b.start];
-    const where = pl === undefined || pl === "loading" ? `<span class="spin"></span> finding open ground…`
-      : pl && pl.err === "approx" ? `Your location is only approximate (±${Math.round(S.loc.acc / 1000)} km), so I can't suggest a spot. Turn on Precise Location for Safari.`
-      : pl && pl.err === "net" ? `Couldn't reach the map service — try refresh. <span style="font-size:11px;opacity:.7">(${pl.msg})</span>`
-      : pl ? `Nearest open ${pl.kind === "open ground" ? "ground" : pl.kind} that way: <b>${pl.name || "unnamed " + pl.kind}</b>, ${Math.round(pl.dm / 10) * 10} m ${compass(pl.b)}.` : `No park or water within reach in that direction — pick the widest street running ${compass(b.sunAz)}.`;
+    const mine = pickMySpot(b.sunAz);
+    const mineTxt = mine ? `☀️ Your spot that way: <b>${esc(mine.name)}</b>, ${Math.round(mine.dm / 10) * 10} m ${compass(mine.b)}.<br>` : "";
+    const live = pl === undefined || pl === "loading" ? `<span class="spin"></span> checking the map…`
+      : pl && pl.err === "approx" ? `Location is approximate (±${Math.round(S.loc.acc / 1000)} km) — turn on Precise Location for Safari.`
+      : pl && pl.err === "net" ? (mine ? "" : `Map lookup unavailable. Save open, sunny places you know with “Save this spot” below.`) + ` <span style="font-size:11px;opacity:.6">(map: ${esc(pl.msg)})</span>`
+      : pl ? `Map: open ${pl.kind === "open ground" ? "ground" : pl.kind} that way — <b>${esc(pl.name || "unnamed " + pl.kind)}</b>, ${Math.round(pl.dm / 10) * 10} m ${compass(pl.b)}.`
+      : mine ? "" : `No mapped park or water within reach that way — pick the widest street running ${compass(b.sunAz)}.`;
+    const where = mineTxt + live;
     tip = `<div class="tip">${arrow(b.sunAz)}<div>${lowSun ? `<b>Low sun (${Math.round(b.sunEl)}°)</b> — buildings and trees will shade most streets. Head <b>${compass(b.sunAz)}</b> toward open ground.` : b.sunEl < 40 ? `Sun ${Math.round(b.sunEl)}° high in the <b>${compass(b.sunAz)}</b> — wide streets and open areas get sun; narrow streets may not.` : `Sun ${Math.round(b.sunEl)}° high in the <b>${compass(b.sunAz)}</b> — most streets get sun.`}<br>${where}</div></div>`;
   }
   const modelRows = Object.entries(b.perModel).map(([m, v]) => `<tr><td>${CFG.modelNames[m] || m}</td><td>${Math.round(v.score)}</td><td>${pct(v.S)}</td><td>${Math.round(v.L * 100)}%</td><td>${v.p.toFixed(1)}</td></tr>`).join("");
@@ -546,6 +560,27 @@ function renderLog() {
   if ($("copyLog")) $("copyLog").onclick = async () => { try { await navigator.clipboard.writeText(JSON.stringify(store.get("log") || [])); toast("Log copied"); } catch (e) { toast("Copy not allowed here"); } };
 }
 
+function renderSpots() {
+  const spots = store.get("spots") || [], l = S.loc;
+  const canSave = l && l.src === "gps" && l.acc && l.acc <= 100;
+  $("spotCard").innerHTML = `<h2>My sunny spots</h2>
+    <div class="muted">Standing somewhere open with a clear view of the southern sky? Save it — the app will point you to it when the sun is that way.</div>
+    <div class="row" style="margin-top:10px"><input id="spotName" placeholder="Name, e.g. field by car park" maxlength="40" style="flex:1;min-width:0;font:inherit;color:inherit;background:var(--chip);border:0;border-radius:10px;padding:8px 10px">
+      <button id="saveSpot" ${canSave ? "" : "disabled style=\"opacity:.4\""}>Save this spot</button></div>
+    ${canSave ? "" : `<div class="muted" style="margin-top:6px">${l && l.src === "gps" ? `Needs a precise GPS fix (now ±${Math.round(l.acc)} m).` : "Needs GPS — tap “Use GPS”."}</div>`}
+    ${spots.length ? `<div style="margin-top:10px">${spots.map((p, i) => `<div class="row" style="justify-content:space-between;padding:6px 0;border-top:1px solid var(--line)"><span>☀️ ${esc(p.name)}${l ? ` <span class="muted">· ${dist(l.lat, l.lon, p.lat, p.lon) < 1000 ? Math.round(dist(l.lat, l.lon, p.lat, p.lon) / 10) * 10 + " m" : (dist(l.lat, l.lon, p.lat, p.lon) / 1000).toFixed(1) + " km"} ${compass(bearing(l.lat, l.lon, p.lat, p.lon))}</span>` : ""}</span><button data-del="${i}" style="padding:3px 10px">✕</button></div>`).join("")}</div>` : ""}`;
+  if (canSave) $("saveSpot").onclick = () => {
+    const sp = store.get("spots") || [];
+    const name = ($("spotName").value || "").trim() || `Spot ${sp.length + 1}`;
+    sp.push({ name, lat: +l.lat.toFixed(5), lon: +l.lon.toFixed(5), t: Date.now() });
+    store.set("spots", sp); toast("Spot saved"); renderSpots(); render();
+  };
+  document.querySelectorAll("[data-del]").forEach(btn => btn.onclick = () => {
+    const sp = store.get("spots") || []; const i = +btn.dataset.del;
+    if (btn.dataset.armed) { sp.splice(i, 1); store.set("spots", sp); renderSpots(); render(); }
+    else { btn.dataset.armed = 1; btn.textContent = "Delete?"; setTimeout(() => { if (btn.isConnected) { delete btn.dataset.armed; btn.textContent = "✕"; } }, 3000); }
+  });
+}
 function renderWalkSeg() {
   $("walkSeg").innerHTML = [20, 25, 30].map(m => `<button class="${m === S.walk ? "on" : ""}" data-m="${m}">${m}′</button>`).join("");
   [...$("walkSeg").children].forEach(b => b.onclick = () => { S.walk = +b.dataset.m; store.set("walk", S.walk); renderWalkSeg(); recompute(); });
@@ -558,7 +593,7 @@ function recompute() {
   const plan = store.get("plan"), nowMin = Math.round(nowL - Math.floor(nowL / 1440) * 1440);
   const planLocked = plan && t && plan.date === t.date && plan.start <= nowMin; // walk already under way: keep it for the logbook
   if (t && t.top.length && !planLocked) store.set("plan", { date: t.date, start: t.top[0].start });
-  render(); renderLog();
+  render(); renderLog(); renderSpots();
 }
 function renderFoot() {
   const t = S.fetchedAt ? new Date(S.fetchedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—";
