@@ -369,7 +369,7 @@ function getGPS() {
     if (!navigator.geolocation) return res(null);
     let done = false; const t = setTimeout(() => { if (!done) { done = true; res(null); } }, 9000);
     navigator.geolocation.getCurrentPosition(p => { if (done) return; done = true; clearTimeout(t); res({ lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy, src: "gps" }); },
-      () => { if (done) return; done = true; clearTimeout(t); res(null); }, { enableHighAccuracy: false, timeout: 8000, maximumAge: 120000 });
+      () => { if (done) return; done = true; clearTimeout(t); res(null); }, { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 });
   });
 }
 async function locate(force) {
@@ -380,10 +380,10 @@ async function locate(force) {
 }
 function renderLoc() {
   const l = S.loc; if (!l) return;
-  const where = l.src === "gps" ? `📍 <b>Here</b>${l.acc ? ` ±${Math.round(l.acc)} m` : ""}` : `🏢 <b>${(fmc().label || "FMC").split("·")[0].trim()}</b>`;
+  const where = l.src === "gps" ? `📍 <b>Here</b>${l.acc ? (l.acc > 1000 ? ` <span style="color:var(--fair)">±${Math.round(l.acc / 1000)} km — approximate</span>` : ` ±${Math.round(l.acc)} m`) : ""}` : `🏢 <b>${(fmc().label || "FMC").split("·")[0].trim()}</b>`;
   $("loc").innerHTML = `${where}<span style="flex:1"></span>` +
     (l.src === "gps" ? `<button id="useFmc">Use FMC</button>` : `<button id="useGps">Use GPS</button>`) +
-    (l.src === "gps" ? `<button id="setFmc" title="Save this spot as your FMC/work location">Save as work location</button>` : "");
+    (l.src === "gps" && !(l.acc > 200) ? `<button id="setFmc" title="Save this spot as your FMC/work location">Set as work</button>` : "");
   if ($("useFmc")) $("useFmc").onclick = () => refresh("fmc");
   if ($("useGps")) $("useGps").onclick = () => refresh("gps");
   if ($("setFmc")) $("setFmc").onclick = () => { store.set("fmc", { lat: l.lat, lon: l.lon, label: "FMC · saved spot" }); toast("Work location saved"); };
@@ -408,16 +408,31 @@ async function fetchForecast(lat, lon) {
   if (!Object.keys(data.models).length) throw new Error("No forecast models responded");
   return data;
 }
+const OVERPASS = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter", "https://overpass.private.coffee/api/interpreter"];
+async function overpass(q) {
+  let last;
+  for (const url of OVERPASS) {
+    const ac = new AbortController(), to = setTimeout(() => ac.abort(), 12000);
+    try {
+      const res = await fetch(url, { method: "POST", body: "data=" + encodeURIComponent(q), headers: { "Content-Type": "application/x-www-form-urlencoded" }, signal: ac.signal });
+      clearTimeout(to);
+      if (res.ok) return await res.json();
+      last = new Error("HTTP " + res.status);
+    } catch (e) { clearTimeout(to); last = e; }
+  }
+  throw last || new Error("map service unreachable");
+}
 async function fetchPlaces(lat, lon) {
-  const key = `${lat.toFixed(3)},${lon.toFixed(3)}`, cache = store.get("places2") || {};
+  const key = `${lat.toFixed(3)},${lon.toFixed(3)}`, cache = store.get("places3") || {};
   if (cache[key] && Date.now() - cache[key].t < 7 * 864e5) return cache[key].els;
   const r = 1300, a = `(around:${r},${lat},${lon})`;
-  const q = `[out:json][timeout:15];(way["leisure"~"^(park|nature_reserve|recreation_ground)$"]${a};relation["leisure"~"^(park|nature_reserve)$"]${a};way["natural"~"^(water|beach|grassland|heath)$"]${a};relation["natural"="water"]${a};way["landuse"~"^(meadow|grass|farmland)$"]${a};);out tags bb 120;`;
-  const res = await fetch("https://overpass-api.de/api/interpreter", { method: "POST", body: "data=" + encodeURIComponent(q), headers: { "Content-Type": "application/x-www-form-urlencoded" } });
-  if (!res.ok) throw new Error("overpass " + res.status);
-  const els = (await res.json()).elements.map(e => ({ bounds: e.bounds || null, center: e.center || (e.lat ? { lat: e.lat, lon: e.lon } : null), tags: e.tags }));
+  const body = `(way["leisure"~"^(park|nature_reserve|recreation_ground)$"]${a};relation["leisure"~"^(park|nature_reserve)$"]${a};way["natural"~"^(water|beach|grassland|heath)$"]${a};relation["natural"="water"]${a};way["landuse"~"^(meadow|grass|farmland)$"]${a};);`;
+  let j;
+  try { j = await overpass(`[out:json][timeout:12];${body}out tags bb 120;`); }          // bounding boxes (nearest edge)
+  catch (e) { j = await overpass(`[out:json][timeout:12];${body}out tags center 120;`); } // fallback: centres only
+  const els = (j.elements || []).map(e => ({ bounds: e.bounds || null, center: e.center || (e.lat ? { lat: e.lat, lon: e.lon } : null), tags: e.tags }));
   const keys = Object.keys(cache); if (keys.length > 15) delete cache[keys[0]];
-  cache[key] = { t: Date.now(), els }; store.set("places2", cache);
+  cache[key] = { t: Date.now(), els }; store.set("places3", cache);
   return els;
 }
 
@@ -451,7 +466,10 @@ function render() {
   let tip = "";
   if (b.sunEl > 0) {
     const pl = S.place[d.date + b.start];
-    const where = pl === undefined ? `<span class="spin"></span> finding open ground…` : pl ? `Nearest open ${pl.kind === "open ground" ? "ground" : pl.kind} that way: <b>${pl.name || "unnamed " + pl.kind}</b>, ${Math.round(pl.dm / 10) * 10} m ${compass(pl.b)}.` : `No park or water within reach in that direction — pick the widest street running ${compass(b.sunAz)}.`;
+    const where = pl === undefined || pl === "loading" ? `<span class="spin"></span> finding open ground…`
+      : pl && pl.err === "approx" ? `Your location is only approximate (±${Math.round(S.loc.acc / 1000)} km), so I can't suggest a spot. Turn on Precise Location for Safari.`
+      : pl && pl.err === "net" ? `Couldn't reach the map service — try refresh.`
+      : pl ? `Nearest open ${pl.kind === "open ground" ? "ground" : pl.kind} that way: <b>${pl.name || "unnamed " + pl.kind}</b>, ${Math.round(pl.dm / 10) * 10} m ${compass(pl.b)}.` : `No park or water within reach in that direction — pick the widest street running ${compass(b.sunAz)}.`;
     tip = `<div class="tip">${arrow(b.sunAz)}<div>${lowSun ? `<b>Low sun (${Math.round(b.sunEl)}°)</b> — buildings and trees will shade most streets. Head <b>${compass(b.sunAz)}</b> toward open ground.` : b.sunEl < 40 ? `Sun ${Math.round(b.sunEl)}° high in the <b>${compass(b.sunAz)}</b> — wide streets and open areas get sun; narrow streets may not.` : `Sun ${Math.round(b.sunEl)}° high in the <b>${compass(b.sunAz)}</b> — most streets get sun.`}<br>${where}</div></div>`;
   }
   const modelRows = Object.entries(b.perModel).map(([m, v]) => `<tr><td>${CFG.modelNames[m] || m}</td><td>${Math.round(v.score)}</td><td>${pct(v.S)}</td><td>${Math.round(v.L * 100)}%</td><td>${v.p.toFixed(1)}</td></tr>`).join("");
@@ -482,14 +500,16 @@ function render() {
   if (b.sunEl > 0 && S.place[d.date + b.start] === undefined) loadPlace(d, b);
 }
 async function loadPlace(d, b) {
-  const key = d.date + b.start; S.place[key] = undefined;
+  const key = d.date + b.start;
+  if (S.place[key] !== undefined) return;
+  if (S.loc.acc && S.loc.acc > 1000) { S.place[key] = { err: "approx" }; return render(); }
+  S.place[key] = "loading";
   try {
     const els = await fetchPlaces(S.loc.lat, S.loc.lon);
     S.place[key] = pickOpenSpace(els, S.loc.lat, S.loc.lon, b.sunAz, S.walk * 35);
-  } catch (e) { S.place[key] = null; }
-  if (S.res && S.res.days[S.day] === d) render();
+  } catch (e) { S.place[key] = { err: "net" }; }
+  if (S.res) render();
 }
-
 // ---- logbook ----
 const OBS = [["sunny", "☀️", "Sunny"], ["bright", "🌥", "Bright"], ["grey", "☁️", "Grey"], ["wet", "🌧", "Wet"]];
 function renderLog() {
