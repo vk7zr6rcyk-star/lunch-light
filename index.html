@@ -65,7 +65,7 @@ h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute
 .strip{display:flex;align-items:flex-end;gap:2px;height:70px;margin-top:6px}
 .strip i{flex:1;border-radius:3px 3px 0 0;background:var(--dull);min-height:3px;position:relative}
 .strip i.top{background:var(--sun)} .strip i.wet{background:var(--wet)}
-.axis{display:flex;justify-content:space-between;font-size:11px;color:var(--mute);margin-top:4px}
+.axis{position:relative;height:14px;font-size:11px;color:var(--mute);margin-top:4px}.axis span{position:absolute;transform:translateX(-50%)}
 details{margin-top:10px;font-size:13px} summary{color:var(--mute);cursor:pointer}
 table{width:100%;border-collapse:collapse;margin-top:6px;font-size:13px}
 td,th{padding:4px 2px;text-align:right} td:first-child,th:first-child{text-align:left}
@@ -106,18 +106,19 @@ const CFG = {
   minGap: 30,                // top-5 slots at least this far apart
   topN: 5,
   weekdays: 5,               // tabs
-  models: ["dmi_seamless", "metno_seamless", "icon_seamless", "ecmwf_ifs025"],
-  modelNames: { dmi_seamless: "DMI", metno_seamless: "MET Norway", icon_seamless: "DWD ICON", ecmwf_ifs025: "ECMWF" },
+  models: ["dmi_seamless", "metno_seamless", "icon_seamless", "ecmwf_ifs"],
+  modelFallback: { ecmwf_ifs: "ecmwf_ifs025" }, // 9 km HRES; fall back to 0.25° open data if unavailable
+  modelNames: { dmi_seamless: "DMI", metno_seamless: "MET Norway", icon_seamless: "DWD ICON", ecmwf_ifs: "ECMWF", ecmwf_ifs025: "ECMWF 0.25°" },
   w: { sun: 0.60, light: 0.25, comfort: 0.15 },
   wetProb: 60, wetMm: 0.5,   // excluded from top 5 above these
   lowSun: 20,                // degrees: shade warning below this
   learnAfter: 8,             // logbook entries before model re-weighting
-  fmc: { lat: 55.8690, lon: 12.4960, label: "FMC · Genvej 2, Hørsholm" }
+  fmc: { lat: 55.8647, lon: 12.4875, label: "FMC · Genvej 2, Hørsholm" }
 };
 const HOURLY_VARS = ["cloud_cover", "cloud_cover_low", "cloud_cover_mid", "cloud_cover_high",
   "sunshine_duration", "shortwave_radiation", "precipitation", "apparent_temperature", "wind_gusts_10m"];
 // Open-Meteo: radiation, sunshine and precipitation are sums/means over the PRECEDING hour.
-const PRECEDING = new Set(["sunshine_duration", "shortwave_radiation", "precipitation"]);
+const PRECEDING = new Set(["sunshine_duration", "shortwave_radiation", "precipitation", "precipitation_probability", "wind_gusts_10m"]);
 
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 const rad = d => d * Math.PI / 180, deg = r => r * 180 / Math.PI;
@@ -150,6 +151,15 @@ const compass = az => COMPASS[Math.round(((az % 360) + 360) % 360 / 22.5) % 16];
 
 // Haurwitz clear-sky global irradiance (W/m²)
 const clearSkyGHI = el => el <= 0 ? 0 : 1098 * Math.sin(rad(el)) * Math.exp(-0.057 / Math.sin(rad(el)));
+
+// UTC offset (minutes) of an IANA zone at a given UTC instant; falls back to the response's fixed offset
+function tzOffsetMin(tz, utcMs, fallbackMin) {
+  try {
+    const p = new Intl.DateTimeFormat("en-US", { timeZone: tz, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).formatToParts(new Date(utcMs));
+    const g = t => +p.find(x => x.type === t).value;
+    return Math.round((Date.UTC(g("year"), g("month") - 1, g("day"), g("hour"), g("minute")) - utcMs) / 60000);
+  } catch (e) { return fallbackMin; }
+}
 
 // Build an interpolator over one model's hourly block
 function makeSeries(hourly) {
@@ -198,52 +208,60 @@ function analyse(data, lat, lon, nowLocalMin, walkMin, weights) {
   const names = Object.keys(series);
   const firstT = localMin((Object.values(data.models)[0] || data.prob).time[0]);
   const todayStart = Math.floor(nowLocalMin / 1440) * 1440;
+  const fixedOff = (data.offsetSec || 0) / 60;
   const days = [];
-  for (let d = 0; d < 8 && days.length < CFG.weekdays; d++) {
+  for (let d = 0; d < 8 && days.filter(x => x.top.length).length < CFG.weekdays; d++) {
     const day0 = todayStart + d * 1440;
     if (day0 < firstT) continue;
     const dow = new Date(day0 * 60000).getUTCDay();
     if (dow === 0 || dow === 6) continue;
+    const off = data.tz ? tzOffsetMin(data.tz, (day0 + 720 - fixedOff) * 60000, fixedOff) : fixedOff; // DST-safe, per day
+    const toUtcMs = m => (m - off) * 60000;
     const slots = [];
     for (let s = CFG.firstStart; s <= CFG.lastStart; s += CFG.step) {
       const t0 = day0 + s;
-      if (t0 + walkMin < nowLocalMin) continue; // already over
       const samples = [0, walkMin / 2, walkMin].map(o => t0 + o);
-      const sunMid = sunPos((t0 + walkMin / 2 - data.offsetSec / 60) * 60000, lat, lon);
+      const sunMid = sunPos(toUtcMs(t0 + walkMin / 2), lat, lon);
       const perModel = {};
       for (const nm of names) {
-        const pts = samples.map(m => pointScore(series[nm], m, sunPos((m - data.offsetSec / 60) * 60000, lat, lon)));
+        const pts = samples.map(m => pointScore(series[nm], m, sunPos(toUtcMs(m), lat, lon)));
         if (pts.some(x => x == null)) continue;
         const avg = k => pts.reduce((a, x) => a + x[k], 0) / pts.length;
         perModel[nm] = { score: avg("score"), S: avg("S"), light: avg("light"), C: avg("C"), p: Math.max(...pts.map(x => x.p)), at: avg("at"), gust: Math.max(...pts.map(x => x.gust)), L: avg("L"), M: avg("M"), H: avg("H") };
       }
-      const ms = Object.keys(perModel);
-      if (!ms.length) continue;
-      const wsum = ms.reduce((a, k) => a + ((weights && weights[k]) || 1), 0);
-      const mean = k => ms.reduce((a, nm) => a + perModel[nm][k] * ((weights && weights[nm]) || 1), 0) / wsum;
+      // De-duplicate: after ~2.5 days DMI and MET Norway fall back to ECMWF, so identical outputs count once
+      const groups = {};
+      for (const nm of Object.keys(perModel)) {
+        const v = perModel[nm], key = v.score.toFixed(1) + "|" + v.S.toFixed(3) + "|" + v.L.toFixed(3);
+        (groups[key] = groups[key] || []).push(nm);
+      }
+      const reps = Object.values(groups).map(g => ({ v: perModel[g[0]], w: Math.max(...g.map(nm => (weights && weights[nm]) || 1)), g }));
+      if (!reps.length) continue;
+      const wsum = reps.reduce((a, r) => a + r.w, 0);
+      const mean = k => reps.reduce((a, r) => a + r.v[k] * r.w, 0) / wsum;
       let pp = null;
       if (probGet) { const v = samples.map(m => probGet("precipitation_probability", m)).filter(x => x != null); if (v.length) pp = Math.max(...v); }
       let score = mean("score");
       if (pp != null && pp > 20) score *= 1 - 0.7 * (pp - 20) / 80;
-      const sArr = ms.map(nm => perModel[nm].S), sMean = sArr.reduce((a, b) => a + b, 0) / sArr.length;
+      const sArr = reps.map(r => r.v.S), sMean = sArr.reduce((a, b) => a + b, 0) / sArr.length;
       const sd = Math.sqrt(sArr.reduce((a, b) => a + (b - sMean) ** 2, 0) / sArr.length);
-      let conf = ms.length >= 3 && sd < 0.12 ? "high" : sd < 0.25 ? "medium" : "low";
+      let conf = reps.length >= 3 && sd < 0.12 ? "high" : reps.length >= 2 && sd < 0.25 ? "medium" : "low";
       if (d >= 3 && conf === "high") conf = "medium";
-      const precipMax = Math.max(...ms.map(nm => perModel[nm].p));
       const wet = (pp != null && pp >= CFG.wetProb) || mean("p") >= CFG.wetMm;
-      slots.push({ start: s, t0, score, sun: mean("S"), light: mean("light"), comfort: mean("C"), at: mean("at"), gust: Math.max(...ms.map(nm => perModel[nm].gust)),
-        L: mean("L"), M: mean("M"), H: mean("H"), precip: mean("p"), precipMax, pp, wet, conf, sd, nModels: ms.length, perModel, sunEl: sunMid.el, sunAz: sunMid.az });
+      slots.push({ start: s, t0, started: t0 < nowLocalMin, score, sun: mean("S"), light: mean("light"), comfort: mean("C"), at: mean("at"), gust: Math.max(...reps.map(r => r.v.gust)),
+        L: mean("L"), M: mean("M"), H: mean("H"), precip: mean("p"), pp, wet, conf, sd, nModels: reps.length, groups: reps.map(r => r.g), perModel, sunEl: sunMid.el, sunAz: sunMid.az });
     }
-    // top N with min gap; dry first
+    // top N (only slots not yet started) with min gap; dry first
+    const future = slots.filter(x => !x.started);
     const pickFrom = arr => { const out = []; for (const x of [...arr].sort((a, b) => b.score - a.score)) { if (out.length >= CFG.topN) break; if (out.every(o => Math.abs(o.start - x.start) >= CFG.minGap)) out.push(x); } return out; };
-    const dry = slots.filter(x => !x.wet && x.sunEl > -1);
-    let top = pickFrom(dry.length ? dry : slots);
-    if (top.length < CFG.topN && dry.length) { // fill with wet ones if needed
-      for (const x of pickFrom(slots.filter(x => x.wet))) { if (top.length >= CFG.topN) break; if (top.every(o => Math.abs(o.start - x.start) >= CFG.minGap)) top.push(x); }
+    const dry = future.filter(x => !x.wet && x.sunEl > -1);
+    let top = pickFrom(dry.length ? dry : future);
+    if (top.length < CFG.topN && dry.length) {
+      for (const x of pickFrom(future.filter(x => x.wet))) { if (top.length >= CFG.topN) break; if (top.every(o => Math.abs(o.start - x.start) >= CFG.minGap)) top.push(x); }
     }
     for (const x of top) x.reason = reason(x);
     const dt = new Date(day0 * 60000);
-    days.push({ day0, offset: d, date: dt.toISOString().slice(0, 10), dow, slots, top, allWet: !dry.length && slots.length > 0 });
+    days.push({ day0, offset: d, date: dt.toISOString().slice(0, 10), dow, slots, top, allWet: !dry.length && future.length > 0 });
   }
   return { days };
 }
@@ -299,14 +317,24 @@ function kindOf(t) {
   if (t.leisure === "park") return "park"; if (t.leisure === "nature_reserve") return "reserve";
   if (t.leisure === "recreation_ground") return "green";
   if (t.landuse === "meadow" || t.landuse === "grass" || t.natural === "grassland" || t.natural === "heath") return "meadow";
-  if (t.landuse === "farmland") return "field"; return "open ground";
+  if (t.landuse === "farmland") return "fields"; return "open ground";
 }
 function pickOpenSpace(elements, lat, lon, sunAz, maxWalkM) {
   const cands = [];
   for (const e of elements || []) {
-    const c = e.center || (e.lat != null ? { lat: e.lat, lon: e.lon } : null); if (!c || !e.tags) continue;
-    const dm = dist(lat, lon, c.lat, c.lon); if (dm < 80 || dm > maxWalkM) continue;
-    const b = bearing(lat, lon, c.lat, c.lon);
+    if (!e.tags) continue;
+    let p = null;
+    if (e.bounds) { // nearest point of the feature's bounding box (big lakes/fields: the near edge, not the far centre)
+      p = { lat: clamp(lat, e.bounds.minlat, e.bounds.maxlat), lon: clamp(lon, e.bounds.minlon, e.bounds.maxlon) };
+    } else if (e.center) p = e.center; else if (e.lat != null) p = { lat: e.lat, lon: e.lon };
+    if (!p) continue;
+    let dm = dist(lat, lon, p.lat, p.lon);
+    let b;
+    if (dm < 60 && e.bounds) { // standing inside/at it: aim at its centre instead
+      const c = { lat: (e.bounds.minlat + e.bounds.maxlat) / 2, lon: (e.bounds.minlon + e.bounds.maxlon) / 2 };
+      b = bearing(lat, lon, c.lat, c.lon); dm = Math.max(dm, 60);
+    } else b = bearing(lat, lon, p.lat, p.lon);
+    if (dm > maxWalkM) continue;
     const off = Math.abs(((b - sunAz + 540) % 360) - 180);
     if (off > 75) continue;
     const kind = kindOf(e.tags);
@@ -355,10 +383,10 @@ function renderLoc() {
   const where = l.src === "gps" ? `📍 <b>Here</b>${l.acc ? ` ±${Math.round(l.acc)} m` : ""}` : `🏢 <b>${(fmc().label || "FMC").split("·")[0].trim()}</b>`;
   $("loc").innerHTML = `${where}<span style="flex:1"></span>` +
     (l.src === "gps" ? `<button id="useFmc">Use FMC</button>` : `<button id="useGps">Use GPS</button>`) +
-    (l.src === "gps" ? `<button id="setFmc" title="Save this spot as your FMC preset">Set FMC here</button>` : "");
+    (l.src === "gps" ? `<button id="setFmc" title="Save this spot as your FMC/work location">Save as work location</button>` : "");
   if ($("useFmc")) $("useFmc").onclick = () => refresh("fmc");
   if ($("useGps")) $("useGps").onclick = () => refresh("gps");
-  if ($("setFmc")) $("setFmc").onclick = () => { store.set("fmc", { lat: l.lat, lon: l.lon, label: "FMC · saved spot" }); toast("FMC preset updated"); };
+  if ($("setFmc")) $("setFmc").onclick = () => { store.set("fmc", { lat: l.lat, lon: l.lon, label: "FMC · saved spot" }); toast("Work location saved"); };
 }
 
 // ---- data ----
@@ -366,29 +394,30 @@ const API = "https://api.open-meteo.com/v1/forecast";
 function stripSuffix(h, m) { const o = {}; for (const [k, v] of Object.entries(h)) o[k.endsWith("_" + m) ? k.slice(0, -m.length - 1) : k] = v; return o; }
 async function fetchForecast(lat, lon) {
   const base = `latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}&timezone=auto&forecast_days=8&wind_speed_unit=ms`;
-  const reqs = CFG.models.map(m => fetch(`${API}?${base}&hourly=${HOURLY_VARS.join(",")}&models=${m}`).then(r => r.ok ? r.json() : Promise.reject(r.status)));
+  const one = m => fetch(`${API}?${base}&hourly=${HOURLY_VARS.join(",")}&models=${m}`).then(r => r.ok ? r.json() : Promise.reject(r.status)).then(j => (j.hourly ? (j._model = m, j) : Promise.reject("empty")));
+  const reqs = CFG.models.map(m => one(m).catch(e => CFG.modelFallback[m] ? one(CFG.modelFallback[m]) : Promise.reject(e)));
   reqs.push(fetch(`${API}?${base}&hourly=precipitation_probability`).then(r => r.ok ? r.json() : Promise.reject(r.status)));
   const out = await Promise.allSettled(reqs);
-  const data = { models: {}, prob: null, offsetSec: null };
+  const data = { models: {}, prob: null, offsetSec: null, tz: null };
   out.forEach((o, i) => {
     if (o.status !== "fulfilled" || !o.value.hourly) return;
-    if (data.offsetSec == null) data.offsetSec = o.value.utc_offset_seconds;
-    if (i < CFG.models.length) data.models[CFG.models[i]] = stripSuffix(o.value.hourly, CFG.models[i]);
+    if (data.offsetSec == null) { data.offsetSec = o.value.utc_offset_seconds; data.tz = o.value.timezone || null; }
+    if (i < CFG.models.length) { const m = o.value._model || CFG.models[i]; data.models[m] = stripSuffix(o.value.hourly, m); }
     else data.prob = o.value.hourly;
   });
   if (!Object.keys(data.models).length) throw new Error("No forecast models responded");
   return data;
 }
 async function fetchPlaces(lat, lon) {
-  const key = `${lat.toFixed(3)},${lon.toFixed(3)}`, cache = store.get("places") || {};
+  const key = `${lat.toFixed(3)},${lon.toFixed(3)}`, cache = store.get("places2") || {};
   if (cache[key] && Date.now() - cache[key].t < 7 * 864e5) return cache[key].els;
   const r = 1300, a = `(around:${r},${lat},${lon})`;
-  const q = `[out:json][timeout:15];(way["leisure"~"^(park|nature_reserve|recreation_ground)$"]${a};relation["leisure"~"^(park|nature_reserve)$"]${a};way["natural"~"^(water|beach|grassland|heath)$"]${a};relation["natural"="water"]${a};way["landuse"~"^(meadow|grass|farmland)$"]${a};);out center tags 120;`;
+  const q = `[out:json][timeout:15];(way["leisure"~"^(park|nature_reserve|recreation_ground)$"]${a};relation["leisure"~"^(park|nature_reserve)$"]${a};way["natural"~"^(water|beach|grassland|heath)$"]${a};relation["natural"="water"]${a};way["landuse"~"^(meadow|grass|farmland)$"]${a};);out tags bb 120;`;
   const res = await fetch("https://overpass-api.de/api/interpreter", { method: "POST", body: "data=" + encodeURIComponent(q), headers: { "Content-Type": "application/x-www-form-urlencoded" } });
   if (!res.ok) throw new Error("overpass " + res.status);
-  const els = (await res.json()).elements.map(e => ({ center: e.center || (e.lat ? { lat: e.lat, lon: e.lon } : null), tags: e.tags }));
+  const els = (await res.json()).elements.map(e => ({ bounds: e.bounds || null, center: e.center || (e.lat ? { lat: e.lat, lon: e.lon } : null), tags: e.tags }));
   const keys = Object.keys(cache); if (keys.length > 15) delete cache[keys[0]];
-  cache[key] = { t: Date.now(), els }; store.set("places", cache);
+  cache[key] = { t: Date.now(), els }; store.set("places2", cache);
   return els;
 }
 
@@ -402,11 +431,11 @@ function ring(score) {
 }
 function arrow(az) { return `<svg class="arrow" viewBox="0 0 30 30"><circle cx="15" cy="15" r="14" fill="var(--sun)" opacity=".2"/><g transform="rotate(${az} 15 15)"><path d="M15 4 L20 17 L15 14 L10 17 Z" fill="var(--sun)"/></g><text x="15" y="27" text-anchor="middle" font-size="6" fill="currentColor">N↑</text></svg>`; }
 const pct = x => Math.round(x * 100) + "%";
-function confTxt(x) { return { high: "High confidence", medium: "Medium confidence", low: "Low confidence — models disagree" }[x.conf] + ` · ${x.nModels} models`; }
+function confTxt(x) { return { high: "High confidence", medium: "Medium confidence", low: "Low confidence — models disagree" }[x.conf] + ` · ${x.nModels} independent model${x.nModels === 1 ? "" : "s"}`; }
 
 function render() {
   const res = S.res; if (!res) return;
-  const days = res.days;
+  const days = res.days.filter(d => d.top.length).slice(0, CFG.weekdays);
   if (!days.length) { $("main").innerHTML = `<div class="card muted">No weekday slots left in the forecast window.</div>`; return; }
   if (S.day >= days.length) S.day = 0;
   $("tabs").innerHTML = days.map((d, i) => {
@@ -423,7 +452,7 @@ function render() {
   if (b.sunEl > 0) {
     const pl = S.place[d.date + b.start];
     const where = pl === undefined ? `<span class="spin"></span> finding open ground…` : pl ? `Nearest open ${pl.kind === "open ground" ? "ground" : pl.kind} that way: <b>${pl.name || "unnamed " + pl.kind}</b>, ${Math.round(pl.dm / 10) * 10} m ${compass(pl.b)}.` : `No park or water within reach in that direction — pick the widest street running ${compass(b.sunAz)}.`;
-    tip = `<div class="tip">${arrow(b.sunAz)}<div>${lowSun ? `<b>Low sun (${Math.round(b.sunEl)}°)</b> — buildings and trees will shade most streets. Head <b>${compass(b.sunAz)}</b> toward open ground.` : `Sun ${Math.round(b.sunEl)}° high in the <b>${compass(b.sunAz)}</b>; most open streets get sun.`}<br>${where}</div></div>`;
+    tip = `<div class="tip">${arrow(b.sunAz)}<div>${lowSun ? `<b>Low sun (${Math.round(b.sunEl)}°)</b> — buildings and trees will shade most streets. Head <b>${compass(b.sunAz)}</b> toward open ground.` : b.sunEl < 40 ? `Sun ${Math.round(b.sunEl)}° high in the <b>${compass(b.sunAz)}</b> — wide streets and open areas get sun; narrow streets may not.` : `Sun ${Math.round(b.sunEl)}° high in the <b>${compass(b.sunAz)}</b> — most streets get sun.`}<br>${where}</div></div>`;
   }
   const modelRows = Object.entries(b.perModel).map(([m, v]) => `<tr><td>${CFG.modelNames[m] || m}</td><td>${Math.round(v.score)}</td><td>${pct(v.S)}</td><td>${Math.round(v.L * 100)}%</td><td>${v.p.toFixed(1)}</td></tr>`).join("");
   const hero = `<div class="card hero">
@@ -446,10 +475,10 @@ function render() {
   const rest = d.top.slice(1).map((x, i) => `<div class="item"><div class="t">${fmtHM(x.start)}</div><div class="r"><span class="badge b-${x.wet ? "wet" : lab(x.score)}" style="font-size:11px">${x.wet ? "Wet" : lab(x.score)}</span> ${x.reason}<br><span style="font-size:11px">${x.conf} confidence · ${pct(x.sun)} sun</span></div><div class="s">${Math.round(x.score)}</div></div>`).join("");
   const topSet = new Set(d.top.map(x => x.start));
   const all = []; for (let s = CFG.firstStart; s <= CFG.lastStart; s += CFG.step) all.push(d.slots.find(x => x.start === s));
-  const strip = all.map(x => x ? `<i class="${topSet.has(x.start) ? "top" : x.wet ? "wet" : ""}" style="height:${Math.max(4, x.score)}%" title="${fmtHM(x.start)} · ${Math.round(x.score)}"></i>` : `<i style="opacity:.25"></i>`).join("");
+  const strip = all.map(x => x ? `<i class="${topSet.has(x.start) ? "top" : x.wet ? "wet" : ""}" style="height:${Math.max(4, x.score)}%;${x.started ? "opacity:.3" : ""}" title="${fmtHM(x.start)} · ${Math.round(x.score)}"></i>` : `<i style="opacity:.25"></i>`).join("");
   $("main").innerHTML = hero +
-    `<div class="card"><h2>Other good times</h2><div class="list">${rest || `<div class="muted">No other slots.</div>`}</div></div>` +
-    `<div class="card"><h2>All start times · 09:00–15:30</h2><div class="strip">${strip}</div><div class="axis"><span>09</span><span>10</span><span>11</span><span>12</span><span>13</span><span>14</span><span>15</span></div><div class="muted" style="margin-top:6px">Orange = top 5 · blue = wet</div></div>`;
+    `<div class="card"><h2>Next best times</h2><div class="list">${rest || `<div class="muted">No other slots.</div>`}</div></div>` +
+    `<div class="card"><h2>All start times · 09:00–15:30</h2><div class="strip">${strip}</div><div class="axis">${[9,10,11,12,13,14,15].map(h => `<span style="left:${((h * 60 - CFG.firstStart) / CFG.step + 0.5) / all.length * 100}%">${String(h).padStart(2, "0")}</span>`).join("")}</div><div class="muted" style="margin-top:6px">Orange = top 5 · blue = wet · faded = already started. Scores within ~5 points are effectively a tie.</div></div>`;
   if (b.sunEl > 0 && S.place[d.date + b.start] === undefined) loadPlace(d, b);
 }
 async function loadPlace(d, b) {
@@ -469,15 +498,16 @@ function renderLog() {
   const nowL = Date.now() / 60000 + (S.data ? S.data.offsetSec / 60 : 60);
   let opts = "";
   if (today) {
-    const done = today.slots.filter(x => x.t0 <= nowL);
-    const pick = done.length ? done[done.length - 1] : null;
-    opts = today.slots.map(x => `<option value="${x.start}" ${pick && x.start === pick.start ? "selected" : ""}>${fmtHM(x.start)}</option>`).join("");
+    const done = today.slots.filter(x => x.started);
+    const plan = store.get("plan");
+    const pick = done.find(x => plan && plan.date === today.date && x.start === plan.start) || done[done.length - 1] || null;
+    opts = done.map(x => `<option value="${x.start}" ${pick && x.start === pick.start ? "selected" : ""}>${fmtHM(x.start)}</option>`).join("");
   }
   const acc = modelAccuracy(log), w = modelWeights(log);
   const accRows = Object.keys(acc).length ? `<table><tr><th>Model</th><th>Avg error</th><th>Weight</th></tr>${Object.entries(acc).sort((a, b) => a[1].e / a[1].n - b[1].e / b[1].n).map(([m, v]) => `<tr><td>${CFG.modelNames[m] || m}</td><td>${Math.round(v.e / v.n * 100)}%</td><td>${w ? w[m].toFixed(2) + "×" : "1×"}</td></tr>`).join("")}</table>` : "";
   $("logCard").innerHTML = `<h2>How was your walk?</h2>
-    ${today ? `<div class="row muted">Started at <select id="logAt">${opts}</select> today</div>
-    <div class="logbtns">${OBS.map(([k, e, t]) => `<button data-k="${k}"><span>${e}</span>${t}</button>`).join("")}</div>` : `<div class="muted">Logging opens on weekdays, for today's walk.</div>`}
+    ${today && today.slots.some(x => x.started) ? `<div class="row muted">Started at <select id="logAt">${opts}</select> today</div>
+    <div class="logbtns">${OBS.map(([k, e, t]) => `<button data-k="${k}"><span>${e}</span>${t}</button>`).join("")}</div>` : `<div class="muted">${today ? "Log your walk here once it has started." : "Logging opens on weekdays, for today's walk."}</div>`}
     <details><summary>${log.length} walk${log.length === 1 ? "" : "s"} logged · ${w ? "model weighting ON" : `weighting starts after ${CFG.learnAfter}`}</summary>
       ${log.slice(-6).reverse().map(r => `<div class="muted">${r.date} ${fmtHM(r.start)} — ${OBS.find(o => o[0] === r.obs)[1]} vs forecast ${Math.round(r.score)} (${Math.round(r.sun * 100)}% sun)</div>`).join("")}
       ${accRows}
@@ -504,6 +534,10 @@ function recompute() {
   if (!S.data) return;
   const nowL = Date.now() / 60000 + S.data.offsetSec / 60;
   S.res = analyse(S.data, S.loc.lat, S.loc.lon, nowL, S.walk, modelWeights(store.get("log")));
+  const t = S.res.days.find(d => d.offset === 0);
+  const plan = store.get("plan"), nowMin = Math.round(nowL - Math.floor(nowL / 1440) * 1440);
+  const planLocked = plan && t && plan.date === t.date && plan.start <= nowMin; // walk already under way: keep it for the logbook
+  if (t && t.top.length && !planLocked) store.set("plan", { date: t.date, start: t.top[0].start });
   render(); renderLog();
 }
 function renderFoot() {
