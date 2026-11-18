@@ -114,7 +114,7 @@ const CFG = {
   wetProb: 60, wetMm: 0.5,   // excluded from top 5 above these
   lowSun: 20,                // degrees: shade warning below this
   learnAfter: 8,             // logbook entries before model re-weighting
-  fmc: { lat: 55.8647, lon: 12.4875, label: "FMC · Genvej 2, Hørsholm" }
+  fmc: { lat: 55.86909, lon: 12.49052, label: "FMC · Genvej 2, Hørsholm" }  // OpenStreetMap address point for Genvej 2, 2970 Hørsholm (Rudersdal)
 };
 const HOURLY_VARS = ["cloud_cover", "cloud_cover_low", "cloud_cover_mid", "cloud_cover_high",
   "sunshine_duration", "shortwave_radiation", "precipitation", "apparent_temperature", "wind_gusts_10m"];
@@ -352,7 +352,7 @@ if (typeof module !== "undefined") module.exports = { CFG, sunPos, compass, clea
 </script>
 <script>
 // ===== UI =====
-const APP_VERSION = "1.8 · 18 Nov";
+const APP_VERSION = "1.9 · 18 Nov";
 // Open ground comes from places.json (prebuilt from OpenStreetMap); live Overpass calls timed out from iPhone in v1.2–v1.5
 const LIVE_MAP = true;
 const $ = id => document.getElementById(id);
