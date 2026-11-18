@@ -1,0 +1,29 @@
+name: Geocode check (one-off)
+on:
+  push:
+    paths: [".github/workflows/geocode-check.yml"]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Official Danish address register (DAWA)
+        run: |
+          curl -sS --retry 3 "https://api.dataforsyningen.dk/adresser?vejnavn=Genvej&husnr=2&postnr=2970&struktur=mini" || true
+          echo
+          curl -sS --retry 3 "https://api.dataforsyningen.dk/adgangsadresser?vejnavn=Genvej&postnr=2970&struktur=mini" | head -c 3000 || true
+      - name: OpenStreetMap (Geofabrik extract)
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q osmium-tool jq
+          curl -sSfL --retry 3 -o dk.osm.pbf https://download.geofabrik.de/europe/denmark-latest.osm.pbf
+          osmium extract -b 12.40,55.83,12.60,55.92 dk.osm.pbf -o h.osm.pbf --overwrite
+          osmium tags-filter h.osm.pbf "nwr/addr:street=Genvej" "w/name=Genvej" "nwr/name=FMC*" "nwr/operator=FMC*" -o g.osm.pbf --overwrite
+          osmium export g.osm.pbf -f geojsonseq -o g.geojsonseq --overwrite
+          python3 - <<'PY'
+          import json
+          for line in open("g.geojsonseq"):
+              f=json.loads(line.strip().lstrip("\x1e")); p=f["properties"]; g=f["geometry"]
+              def flat(c):
+                  return [c] if isinstance(c[0],(int,float)) else [x for y in c for x in flat(y)]
+              pts=flat(g["coordinates"]); lon=sum(x[0] for x in pts)/len(pts); lat=sum(x[1] for x in pts)/len(pts)
+              print(f'{lat:.5f},{lon:.5f}', g["type"], {k:v for k,v in p.items() if k.startswith(("addr","name","operator","building","highway"))})
+          PY
