@@ -341,7 +341,7 @@ function pickOpenSpace(elements, lat, lon, sunAz, maxWalkM) {
     const kind = kindOf(e.tags);
     const bonus = (kind === "water" || kind === "beach" ? 0.25 : 0) + (e.tags.name ? 0.15 : 0);
     const score = (1 - off / 75) * 0.5 + (1 - dm / maxWalkM) * 0.5 + bonus;
-    cands.push({ name: e.tags.name || null, kind, dm, b, off, score });
+    cands.push({ name: e.tags.name || null, kind, dm, b, off, score, lat: p.lat, lon: p.lon });
   }
   cands.sort((a, b) => b.score - a.score);
   return cands[0] || null;
@@ -352,7 +352,7 @@ if (typeof module !== "undefined") module.exports = { CFG, sunPos, compass, clea
 </script>
 <script>
 // ===== UI =====
-const APP_VERSION = "1.7 · 18 Nov";
+const APP_VERSION = "1.8 · 18 Nov";
 // Open ground comes from places.json (prebuilt from OpenStreetMap); live Overpass calls timed out from iPhone in v1.2–v1.5
 const LIVE_MAP = true;
 const $ = id => document.getElementById(id);
@@ -412,6 +412,10 @@ async function fetchForecast(lat, lon) {
   if (!Object.keys(data.models).length) throw new Error("No forecast models responded");
   return data;
 }
+function gmaps(p) { // walking directions from here to the place's nearest edge (opens the Google Maps app on iPhone if installed)
+  return `https://www.google.com/maps/dir/?api=1&origin=${S.loc.lat.toFixed(5)},${S.loc.lon.toFixed(5)}&destination=${p.lat.toFixed(5)},${p.lon.toFixed(5)}&travelmode=walking`;
+}
+const mapLink = p => ` <a href="${gmaps(p)}" target="_blank" rel="noopener" style="color:inherit;white-space:nowrap">Google Maps ↗</a>`;
 const esc = t => String(t ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 function pickMySpot(sunAz) {
   const spots = store.get("spots") || []; if (!S.loc || !spots.length) return null;
@@ -473,12 +477,12 @@ function render() {
   if (b.sunEl > 0) {
     const pl = LIVE_MAP ? S.place[d.date + b.start] : null;
     const mine = pickMySpot(b.sunAz);
-    const mineTxt = mine ? `☀️ Your spot that way: <b>${esc(mine.name)}</b>, ${Math.round(mine.dm / 10) * 10} m ${compass(mine.b)}.<br>` : "";
+    const mineTxt = mine ? `☀️ Your spot that way: <b>${esc(mine.name)}</b>, ${Math.round(mine.dm / 10) * 10} m ${compass(mine.b)}.${mapLink(mine)}<br>` : "";
     const live = pl === undefined || pl === "loading" ? `<span class="spin"></span> checking the map…`
       : pl && pl.err === "approx" ? `Location is approximate (±${Math.round(S.loc.acc / 1000)} km) — turn on Precise Location for Safari.`
       : pl && pl.err === "outside" ? (mine ? "" : `Map data covers Copenhagen–Hørsholm only — save open, sunny places here with “Save this spot”.`)
       : pl && pl.err === "net" ? (mine ? "" : `Map data didn't load — try refresh.`) + ` <span style="font-size:11px;opacity:.6">(${esc(pl.msg)})</span>`
-      : pl ? `Map: open ${pl.kind === "open ground" ? "ground" : pl.kind} that way — <b>${esc(pl.name || "unnamed " + pl.kind)}</b>, ${Math.round(pl.dm / 10) * 10} m ${compass(pl.b)}.`
+      : pl ? `Map: open ${pl.kind === "open ground" ? "ground" : pl.kind} that way — <b>${esc(pl.name || "unnamed " + pl.kind)}</b>, ${Math.round(pl.dm / 10) * 10} m ${compass(pl.b)}.${mapLink(pl)}`
       : mine ? "" : `No saved spot that way yet — when you find an open, sunny place, save it below.`;
     const where = mineTxt + live;
     tip = `<div class="tip">${arrow(b.sunAz)}<div>${lowSun ? `<b>Low sun (${Math.round(b.sunEl)}°)</b> — buildings and trees will shade most streets. Head <b>${compass(b.sunAz)}</b> toward open ground.` : b.sunEl < 40 ? `Sun ${Math.round(b.sunEl)}° high in the <b>${compass(b.sunAz)}</b> — wide streets and open areas get sun; narrow streets may not.` : `Sun ${Math.round(b.sunEl)}° high in the <b>${compass(b.sunAz)}</b> — most streets get sun.`}<br>${where}</div></div>`;
