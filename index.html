@@ -352,7 +352,9 @@ if (typeof module !== "undefined") module.exports = { CFG, sunPos, compass, clea
 </script>
 <script>
 // ===== UI =====
-const APP_VERSION = "1.5 · 18 Nov";
+const APP_VERSION = "1.6 · 18 Nov";
+// Live OpenStreetMap lookup timed out on every Overpass mirror from the user's iPhone (v1.2–v1.5); off until a reliable source is found
+const LIVE_MAP = false;
 const $ = id => document.getElementById(id);
 const PRE = "ll_";
 const store = {
@@ -475,14 +477,14 @@ function render() {
   const lowSun = b.sunEl > 0 && b.sunEl < CFG.lowSun;
   let tip = "";
   if (b.sunEl > 0) {
-    const pl = S.place[d.date + b.start];
+    const pl = LIVE_MAP ? S.place[d.date + b.start] : null;
     const mine = pickMySpot(b.sunAz);
     const mineTxt = mine ? `☀️ Your spot that way: <b>${esc(mine.name)}</b>, ${Math.round(mine.dm / 10) * 10} m ${compass(mine.b)}.<br>` : "";
     const live = pl === undefined || pl === "loading" ? `<span class="spin"></span> checking the map…`
       : pl && pl.err === "approx" ? `Location is approximate (±${Math.round(S.loc.acc / 1000)} km) — turn on Precise Location for Safari.`
       : pl && pl.err === "net" ? (mine ? "" : `Map lookup unavailable. Save open, sunny places you know with “Save this spot” below.`) + ` <span style="font-size:11px;opacity:.6">(map: ${esc(pl.msg)})</span>`
       : pl ? `Map: open ${pl.kind === "open ground" ? "ground" : pl.kind} that way — <b>${esc(pl.name || "unnamed " + pl.kind)}</b>, ${Math.round(pl.dm / 10) * 10} m ${compass(pl.b)}.`
-      : mine ? "" : `No mapped park or water within reach that way — pick the widest street running ${compass(b.sunAz)}.`;
+      : mine ? "" : `No saved spot that way yet — when you find an open, sunny place, save it below.`;
     const where = mineTxt + live;
     tip = `<div class="tip">${arrow(b.sunAz)}<div>${lowSun ? `<b>Low sun (${Math.round(b.sunEl)}°)</b> — buildings and trees will shade most streets. Head <b>${compass(b.sunAz)}</b> toward open ground.` : b.sunEl < 40 ? `Sun ${Math.round(b.sunEl)}° high in the <b>${compass(b.sunAz)}</b> — wide streets and open areas get sun; narrow streets may not.` : `Sun ${Math.round(b.sunEl)}° high in the <b>${compass(b.sunAz)}</b> — most streets get sun.`}<br>${where}</div></div>`;
   }
@@ -511,7 +513,7 @@ function render() {
   $("main").innerHTML = hero +
     `<div class="card"><h2>Next best times</h2><div class="list">${rest || `<div class="muted">No other slots.</div>`}</div></div>` +
     `<div class="card"><h2>All start times · 09:00–15:30</h2><div class="strip">${strip}</div><div class="axis">${[9,10,11,12,13,14,15].map(h => `<span style="left:${((h * 60 - CFG.firstStart) / CFG.step + 0.5) / all.length * 100}%">${String(h).padStart(2, "0")}</span>`).join("")}</div><div class="muted" style="margin-top:6px">Orange = top 5 · blue = wet · faded = already started. Scores within ~5 points are effectively a tie.</div></div>`;
-  if (b.sunEl > 0 && S.place[d.date + b.start] === undefined) loadPlace(d, b);
+  if (LIVE_MAP && b.sunEl > 0 && S.place[d.date + b.start] === undefined) loadPlace(d, b);
 }
 async function loadPlace(d, b) {
   const key = d.date + b.start;
@@ -597,7 +599,7 @@ function recompute() {
 }
 function renderFoot() {
   const t = S.fetchedAt ? new Date(S.fetchedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—";
-  $("foot").innerHTML = `<b>Lunch Light v${APP_VERSION}</b><br>Forecast updated ${t} · <a href="#" id="rf">refresh</a><br>Weather: <a href="https://open-meteo.com/">Open-Meteo</a> (DMI, MET Norway, DWD, ECMWF; CC BY 4.0) · Places: © OpenStreetMap contributors`;
+  $("foot").innerHTML = `<b>Lunch Light v${APP_VERSION}</b><br>Forecast updated ${t} · <a href="#" id="rf">refresh</a><br>Weather: <a href="https://open-meteo.com/">Open-Meteo</a> (DMI, MET Norway, DWD, ECMWF; CC BY 4.0)`;
   $("rf").onclick = e => { e.preventDefault(); refresh(S.loc && S.loc.src === "fmc" ? "fmc" : "gps"); };
 }
 async function refresh(mode) {
