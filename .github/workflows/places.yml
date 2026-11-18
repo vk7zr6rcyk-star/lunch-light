@@ -7,14 +7,35 @@ on:
     - cron: "17 3 1 * *"   # monthly refresh
 permissions:
   contents: write
+concurrency:
+  group: places
+  cancel-in-progress: true
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - run: python3 tools/build_places.py places.json
-      - run: |
+      - name: Install osmium
+        run: sudo apt-get update -q && sudo apt-get install -y -q osmium-tool
+      - name: Download Denmark OSM extract (Geofabrik)
+        run: curl -sSfL --retry 3 -o dk.osm.pbf https://download.geofabrik.de/europe/denmark-latest.osm.pbf && ls -lh dk.osm.pbf
+      - name: Extract open ground around Copenhagen + Hørsholm
+        run: |
+          osmium extract -b 12.30,55.55,12.70,55.95 dk.osm.pbf -o cph.osm.pbf --overwrite
+          osmium tags-filter cph.osm.pbf \
+            wr/leisure=park,nature_reserve,recreation_ground,common \
+            wr/natural=water,beach,grassland,heath \
+            wr/landuse=meadow,grass,farmland,recreation_ground \
+            -o open.osm.pbf --overwrite
+          osmium export open.osm.pbf -f geojsonseq -o open.geojsonseq --overwrite
+          python3 tools/build_places.py open.geojsonseq places.json
+          ls -lh places.json
+      - name: Commit
+        run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add places.json
-          git diff --cached --quiet || (git commit -m "Update places.json" && git push)
+          git diff --cached --quiet && exit 0
+          git commit -m "Update places.json"
+          git pull --rebase -q origin main && git push
