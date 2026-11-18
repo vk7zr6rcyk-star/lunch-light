@@ -325,7 +325,10 @@ function pickOpenSpace(elements, lat, lon, sunAz, maxWalkM) {
   for (const e of elements || []) {
     if (!e.tags) continue;
     let p = null;
-    if (e.bounds) { // nearest point of the feature's bounding box (big lakes/fields: the near edge, not the far centre)
+    if (e.pts && e.pts.length >= 2) { // nearest sampled point on the real outline
+      let best = Infinity;
+      for (let i = 0; i < e.pts.length; i += 2) { const dd = dist(lat, lon, e.pts[i], e.pts[i + 1]); if (dd < best) { best = dd; p = { lat: e.pts[i], lon: e.pts[i + 1] }; } }
+    } else if (e.bounds) { // nearest point of the feature's bounding box (big lakes/fields: the near edge, not the far centre)
       p = { lat: clamp(lat, e.bounds.minlat, e.bounds.maxlat), lon: clamp(lon, e.bounds.minlon, e.bounds.maxlon) };
     } else if (e.center) p = e.center; else if (e.lat != null) p = { lat: e.lat, lon: e.lon };
     if (!p) continue;
@@ -352,7 +355,7 @@ if (typeof module !== "undefined") module.exports = { CFG, sunPos, compass, clea
 </script>
 <script>
 // ===== UI =====
-const APP_VERSION = "1.9 · 18 Nov";
+const APP_VERSION = "2.0 · 18 Nov";
 // Open ground comes from places.json (prebuilt from OpenStreetMap); live Overpass calls timed out from iPhone in v1.2–v1.5
 const LIVE_MAP = true;
 const $ = id => document.getElementById(id);
@@ -364,7 +367,8 @@ const store = {
 const S = { walk: store.get("walk") || 25, day: 0, loc: null, data: null, res: null, place: {}, fetchedAt: null };
 
 function toast(t) { const el = $("toast"); el.textContent = t; el.classList.add("on"); setTimeout(() => el.classList.remove("on"), 1800); }
-const fmc = () => store.get("fmc") || CFG.fmc;
+const fmc = () => CFG.fmc; // verified address point; old "Set as work" overrides are ignored
+try { localStorage.removeItem("ll_fmc"); } catch (e) {}
 
 // ---- location ----
 function getGPS() {
@@ -387,10 +391,9 @@ function renderLoc() {
   const where = l.src === "gps" ? `📍 <b>Here</b>${l.acc ? (l.acc > 1000 ? ` <span style="color:var(--fair)">±${Math.round(l.acc / 1000)} km — approximate</span>` : ` ±${Math.round(l.acc)} m`) : ""}` : `🏢 <b>${(fmc().label || "FMC").split("·")[0].trim()}</b>`;
   $("loc").innerHTML = `${where}<span style="flex:1"></span>` +
     (l.src === "gps" ? `<button id="useFmc">Use FMC</button>` : `<button id="useGps">Use GPS</button>`) +
-    (l.src === "gps" && !(l.acc > 200) ? `<button id="setFmc" title="Save this spot as your FMC/work location">Set as work</button>` : "");
+    "";
   if ($("useFmc")) $("useFmc").onclick = () => refresh("fmc");
   if ($("useGps")) $("useGps").onclick = () => refresh("gps");
-  if ($("setFmc")) $("setFmc").onclick = () => { store.set("fmc", { lat: l.lat, lon: l.lon, label: "FMC · saved spot" }); toast("Work location saved"); };
 }
 
 // ---- data ----
@@ -443,7 +446,7 @@ async function fetchPlaces(lat, lon) {
   const dLat = 1500 / 111320, dLon = 1500 / (111320 * Math.cos(lat * Math.PI / 180));
   return P.items
     .filter(([a, b, c, d]) => c >= lat - dLat && a <= lat + dLat && d >= lon - dLon && b <= lon + dLon)
-    .map(([a, b, c, d, k, name]) => ({ bounds: { minlat: a, minlon: b, maxlat: c, maxlon: d }, tags: { ...KIND_TAGS[k], ...(name ? { name } : {}) } }));
+    .map(([a, b, c, d, k, name, pts]) => ({ bounds: { minlat: a, minlon: b, maxlat: c, maxlon: d }, pts: pts || null, tags: { ...KIND_TAGS[k], ...(name ? { name } : {}) } }));
 }
 
 // ---- render ----
