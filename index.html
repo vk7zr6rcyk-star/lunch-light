@@ -410,17 +410,15 @@ async function fetchForecast(lat, lon) {
 }
 const OVERPASS = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter", "https://overpass.private.coffee/api/interpreter"];
 async function overpass(q) {
-  let last;
-  for (const url of OVERPASS) {
-    const ac = new AbortController(), to = setTimeout(() => ac.abort(), 12000);
-    try {
-      const res = await fetch(url, { method: "POST", body: "data=" + encodeURIComponent(q), headers: { "Content-Type": "application/x-www-form-urlencoded" }, signal: ac.signal });
-      clearTimeout(to);
-      if (res.ok) return await res.json();
-      last = new Error("HTTP " + res.status);
-    } catch (e) { clearTimeout(to); last = e; }
-  }
-  throw last || new Error("map service unreachable");
+  // query all mirrors in parallel; first good answer wins; 10 s cap
+  const ac = new AbortController(), to = setTimeout(() => ac.abort(), 10000);
+  const errs = [];
+  const tries = OVERPASS.map(url => fetch(url, { method: "POST", body: "data=" + encodeURIComponent(q), headers: { "Content-Type": "application/x-www-form-urlencoded" }, signal: ac.signal })
+    .then(r => r.ok ? r.json() : Promise.reject(new Error(new URL(url).host + " HTTP " + r.status)))
+    .catch(e => { errs.push(e.name === "AbortError" ? new URL(url).host + " timeout" : (e.message || String(e))); throw e; }));
+  try { const j = await Promise.any(tries); ac.abort(); return j; }
+  catch (e) { throw new Error(errs.join("; ") || "map service unreachable"); }
+  finally { clearTimeout(to); }
 }
 async function fetchPlaces(lat, lon) {
   const key = `${lat.toFixed(3)},${lon.toFixed(3)}`, cache = store.get("places3") || {};
@@ -468,7 +466,7 @@ function render() {
     const pl = S.place[d.date + b.start];
     const where = pl === undefined || pl === "loading" ? `<span class="spin"></span> finding open ground…`
       : pl && pl.err === "approx" ? `Your location is only approximate (±${Math.round(S.loc.acc / 1000)} km), so I can't suggest a spot. Turn on Precise Location for Safari.`
-      : pl && pl.err === "net" ? `Couldn't reach the map service — try refresh.`
+      : pl && pl.err === "net" ? `Couldn't reach the map service — try refresh. <span style="font-size:11px;opacity:.7">(${pl.msg})</span>`
       : pl ? `Nearest open ${pl.kind === "open ground" ? "ground" : pl.kind} that way: <b>${pl.name || "unnamed " + pl.kind}</b>, ${Math.round(pl.dm / 10) * 10} m ${compass(pl.b)}.` : `No park or water within reach in that direction — pick the widest street running ${compass(b.sunAz)}.`;
     tip = `<div class="tip">${arrow(b.sunAz)}<div>${lowSun ? `<b>Low sun (${Math.round(b.sunEl)}°)</b> — buildings and trees will shade most streets. Head <b>${compass(b.sunAz)}</b> toward open ground.` : b.sunEl < 40 ? `Sun ${Math.round(b.sunEl)}° high in the <b>${compass(b.sunAz)}</b> — wide streets and open areas get sun; narrow streets may not.` : `Sun ${Math.round(b.sunEl)}° high in the <b>${compass(b.sunAz)}</b> — most streets get sun.`}<br>${where}</div></div>`;
   }
@@ -507,7 +505,7 @@ async function loadPlace(d, b) {
   try {
     const els = await fetchPlaces(S.loc.lat, S.loc.lon);
     S.place[key] = pickOpenSpace(els, S.loc.lat, S.loc.lon, b.sunAz, S.walk * 35);
-  } catch (e) { S.place[key] = { err: "net" }; }
+  } catch (e) { S.place[key] = { err: "net", msg: (e && e.message) || "" }; }
   if (S.res) render();
 }
 // ---- logbook ----
