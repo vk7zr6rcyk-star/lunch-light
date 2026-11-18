@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Lunch Light">
+<meta name="theme-color" content="#14110d">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<title>Lunch Light</title>
+<style>
+:root{
+  --bg:#f6f1e8; --card:#fffdf8; --ink:#1d1a16; --mute:#7a7064; --line:#e7dfd2;
+  --sun:#f2a516; --sun2:#ffcf5c; --good:#3f9b5a; --fair:#c9892b; --dull:#9a9184; --wet:#4a78b5;
+  --chip:#efe7d9; --shadow:0 1px 2px rgba(60,40,10,.06),0 6px 20px rgba(60,40,10,.06);
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#14110d; --card:#1f1b16; --ink:#f3ece1; --mute:#a49a8c; --line:#2f2922;
+  --chip:#2a251e; --dull:#6f675d; --shadow:none;
+}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif}
+.wrap{max-width:520px;margin:0 auto;padding:calc(env(safe-area-inset-top) + 14px) 16px calc(env(safe-area-inset-bottom) + 40px)}
+header{display:flex;align-items:center;justify-content:space-between;gap:8px}
+h1{font-size:22px;margin:0;letter-spacing:-.02em;display:flex;align-items:center;gap:8px}
+h1 .dot{width:14px;height:14px;border-radius:50%;background:radial-gradient(circle at 35% 35%,var(--sun2),var(--sun));box-shadow:0 0 12px var(--sun)}
+button{font:inherit;color:inherit;border:0;background:var(--chip);border-radius:999px;padding:7px 12px;cursor:pointer}
+button:active{opacity:.7}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.loc{margin-top:10px;font-size:13px;color:var(--mute)}
+.loc b{color:var(--ink);font-weight:600}
+.loc button{font-size:13px;padding:5px 10px}
+.seg{display:inline-flex;background:var(--chip);border-radius:999px;padding:3px}
+.seg button{background:transparent;padding:5px 11px;font-size:14px}
+.seg button.on{background:var(--card);box-shadow:var(--shadow);font-weight:600}
+.tabs{display:flex;gap:6px;overflow-x:auto;margin:16px -16px 0;padding:0 16px 4px;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tab{flex:0 0 auto;text-align:center;min-width:62px;padding:8px 10px;border-radius:14px;background:var(--chip)}
+.tab small{display:block;font-size:11px;color:var(--mute)}
+.tab .mini{display:block;font-size:12px;margin-top:2px}
+.tab.on{background:var(--ink);color:var(--bg)} .tab.on small{color:inherit;opacity:.7}
+.card{background:var(--card);border-radius:20px;padding:16px;margin-top:14px;box-shadow:var(--shadow)}
+.hero .time{font-size:40px;font-weight:700;letter-spacing:-.03em;line-height:1}
+.hero .time span{font-size:18px;font-weight:500;color:var(--mute)}
+.badge{display:inline-block;font-size:12px;font-weight:700;padding:3px 9px;border-radius:999px;color:#fff;vertical-align:middle}
+.b-Great{background:var(--sun)} .b-Good{background:var(--good)} .b-Fair{background:var(--fair)} .b-Dull{background:var(--dull)} .b-wet{background:var(--wet)}
+.conf{font-size:12px;color:var(--mute)}
+.reason{margin-top:8px;font-size:15px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:12px}
+.stat{background:var(--chip);border-radius:12px;padding:8px 6px;text-align:center}
+.stat b{display:block;font-size:17px} .stat small{font-size:11px;color:var(--mute)}
+.ring{width:64px;height:64px;flex:0 0 auto}
+.hero-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.tip{margin-top:12px;font-size:14px;padding:10px 12px;border-radius:12px;background:color-mix(in srgb,var(--sun) 14%,transparent);display:flex;gap:10px;align-items:flex-start}
+.tip .arrow{flex:0 0 auto;width:30px;height:30px}
+.list .item{display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--line)}
+.list .item:first-child{border-top:0}
+.item .t{font-weight:700;font-size:18px;width:56px}
+.item .r{flex:1;font-size:13px;color:var(--mute)}
+.item .s{font-weight:700;font-size:18px;width:34px;text-align:right}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute);margin:0 0 6px;font-weight:600}
+.strip{display:flex;align-items:flex-end;gap:2px;height:70px;margin-top:6px}
+.strip i{flex:1;border-radius:3px 3px 0 0;background:var(--dull);min-height:3px;position:relative}
+.strip i.top{background:var(--sun)} .strip i.wet{background:var(--wet)}
+.axis{display:flex;justify-content:space-between;font-size:11px;color:var(--mute);margin-top:4px}
+details{margin-top:10px;font-size:13px} summary{color:var(--mute);cursor:pointer}
+table{width:100%;border-collapse:collapse;margin-top:6px;font-size:13px}
+td,th{padding:4px 2px;text-align:right} td:first-child,th:first-child{text-align:left}
+th{color:var(--mute);font-weight:500}
+.logbtns{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:10px}
+.logbtns button{border-radius:14px;padding:10px 4px;font-size:13px;display:flex;flex-direction:column;align-items:center;gap:2px}
+.logbtns button span{font-size:24px}
+select{font:inherit;color:inherit;background:var(--chip);border:0;border-radius:10px;padding:6px 8px}
+.muted{color:var(--mute);font-size:13px}
+.warn{color:var(--wet);font-size:13px;margin-top:8px}
+.foot{margin-top:20px;font-size:11px;color:var(--mute);text-align:center;line-height:1.6}
+.foot a{color:inherit}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--sun);border-radius:50%;animation:sp 0.8s linear infinite;vertical-align:-2px}
+@keyframes sp{to{transform:rotate(360deg)}}
+.toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 20px);transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:9px 16px;border-radius:999px;font-size:14px;opacity:0;transition:opacity .3s;pointer-events:none}
+.toast.on{opacity:1}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1><span class="dot"></span>Lunch Light</h1>
+    <div class="seg" id="walkSeg"></div>
+  </header>
+  <div class="loc row" id="loc"></div>
+  <div class="tabs" id="tabs"></div>
+  <div id="main"><div class="card muted"><span class="spin"></span> Getting your location and the forecast…</div></div>
+  <div class="card" id="logCard"></div>
+  <div class="foot" id="foot"></div>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+// ===== Lunch Light — core logic (pure, testable) =====
+const CFG = {
+  firstStart: 9 * 60,        // 09:00
+  lastStart: 15 * 60 + 30,   // 15:30
+  step: 15,                  // minutes between candidate starts
+  minGap: 30,                // top-5 slots at least this far apart
+  topN: 5,
+  weekdays: 5,               // tabs
+  models: ["dmi_seamless", "metno_seamless", "icon_seamless", "ecmwf_ifs025"],
+  modelNames: { dmi_seamless: "DMI", metno_seamless: "MET Norway", icon_seamless: "DWD ICON", ecmwf_ifs025: "ECMWF" },
+  w: { sun: 0.60, light: 0.25, comfort: 0.15 },
+  wetProb: 60, wetMm: 0.5,   // excluded from top 5 above these
+  lowSun: 20,                // degrees: shade warning below this
+  learnAfter: 8,             // logbook entries before model re-weighting
+  fmc: { lat: 55.8690, lon: 12.4960, label: "FMC · Genvej 2, Hørsholm" }
+};
+const HOURLY_VARS = ["cloud_cover", "cloud_cover_low", "cloud_cover_mid", "cloud_cover_high",
+  "sunshine_duration", "shortwave_radiation", "precipitation", "apparent_temperature", "wind_gusts_10m"];
+// Open-Meteo: radiation, sunshine and precipitation are sums/means over the PRECEDING hour.
+const PRECEDING = new Set(["sunshine_duration", "shortwave_radiation", "precipitation"]);
+
+const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+const rad = d => d * Math.PI / 180, deg = r => r * 180 / Math.PI;
+
+// "2026-11-18T12:00" -> local minutes since epoch (wall-clock, offset-free)
+function localMin(s) {
+  const [d, t] = s.split("T"); const [y, m, dd] = d.split("-").map(Number); const [h, mi] = t.split(":").map(Number);
+  return Date.UTC(y, m - 1, dd, h, mi) / 60000;
+}
+function fmtHM(min) { const m = ((min % 1440) + 1440) % 1440; return String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0"); }
+
+// Solar position (NOAA-style approximation, ±0.5°). utcMs: epoch ms.
+function sunPos(utcMs, lat, lon) {
+  const n = utcMs / 86400000 + 2440587.5 - 2451545.0;
+  const L = (280.460 + 0.9856474 * n) % 360;
+  const g = rad((357.528 + 0.9856003 * n) % 360);
+  const lam = rad(L + 1.915 * Math.sin(g) + 0.020 * Math.sin(2 * g));
+  const eps = rad(23.439 - 0.0000004 * n);
+  const ra = Math.atan2(Math.cos(eps) * Math.sin(lam), Math.cos(lam));
+  const dec = Math.asin(Math.sin(eps) * Math.sin(lam));
+  const gmst = (18.697374558 + 24.06570982441908 * n) % 24;
+  const H = rad(((gmst * 15 + lon - deg(ra)) % 360 + 540) % 360 - 180);
+  const phi = rad(lat);
+  const el = Math.asin(Math.sin(phi) * Math.sin(dec) + Math.cos(phi) * Math.cos(dec) * Math.cos(H));
+  const az = Math.atan2(-Math.sin(H) * Math.cos(dec), Math.sin(dec) * Math.cos(phi) - Math.cos(dec) * Math.sin(phi) * Math.cos(H));
+  return { el: deg(el), az: (deg(az) + 360) % 360 };
+}
+const COMPASS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+const compass = az => COMPASS[Math.round(((az % 360) + 360) % 360 / 22.5) % 16];
+
+// Haurwitz clear-sky global irradiance (W/m²)
+const clearSkyGHI = el => el <= 0 ? 0 : 1098 * Math.sin(rad(el)) * Math.exp(-0.057 / Math.sin(rad(el)));
+
+// Build an interpolator over one model's hourly block
+function makeSeries(hourly) {
+  const t = hourly.time.map(localMin);
+  return function get(v, m) {
+    const arr = hourly[v]; if (!arr) return null;
+    const shift = PRECEDING.has(v) ? -30 : 0;
+    const x = m - shift; // value stamped at H represents H-30min
+    const i = Math.floor((x - t[0]) / 60);
+    if (i < 0 || i >= t.length) return null;
+    const a = arr[i], b = i + 1 < t.length ? arr[i + 1] : a;
+    if (a == null && b == null) return null; if (a == null) return b; if (b == null) return a;
+    const f = (x - t[i]) / 60; return a + (b - a) * f;
+  };
+}
+
+// Score one model at one instant
+function pointScore(get, m, sun) {
+  const lo = get("cloud_cover_low", m), mid = get("cloud_cover_mid", m), hi = get("cloud_cover_high", m);
+  const tot = get("cloud_cover", m);
+  if (lo == null && tot == null) return null;
+  const L = (lo ?? tot) / 100, M = (mid ?? 0) / 100, Hh = (hi ?? 0) / 100;
+  const cloudClear = (1 - L) * (1 - 0.6 * M) * (1 - 0.25 * Hh);
+  const sd = get("sunshine_duration", m);
+  const sunFrac = sd == null ? null : clamp(sd / 3600, 0, 1);
+  let S = sunFrac == null ? cloudClear : 0.6 * sunFrac + 0.4 * cloudClear;
+  S *= clamp(sun.el / 5, 0, 1);
+  const ghi = get("shortwave_radiation", m) ?? 0, cs = clearSkyGHI(sun.el);
+  const light = sun.el <= -6 ? 0 : sun.el <= 0 ? 0.05 : 0.85 * (cs > 5 ? clamp(ghi / cs, 0, 1) : 0) + 0.15 * clamp(ghi / 250, 0, 1);
+  const at = get("apparent_temperature", m), gust = get("wind_gusts_10m", m) ?? 0;
+  let C = at == null ? 0.6 : at < 12 ? clamp((at + 10) / 22, 0, 1) : at <= 24 ? 1 : clamp((34 - at) / 10, 0, 1);
+  if (gust > 15) C *= clamp(1 - (gust - 15) / 10, 0.3, 1);
+  const p = get("precipitation", m) ?? 0;
+  const rf = p < 0.1 ? 1 : p < 0.5 ? 0.6 : p < 1.5 ? 0.3 : 0.1;
+  const score = 100 * (CFG.w.sun * S + CFG.w.light * light + CFG.w.comfort * C) * rf;
+  return { score, S, light, C, p, at, gust, L, M, H: Hh };
+}
+
+/**
+ * data: { offsetSec, models: {name: hourlyBlock}, prob: hourlyBlock(best_match with precipitation_probability) }
+ * returns { days: [{date, label, slots:[...], top:[...]}] }
+ */
+function analyse(data, lat, lon, nowLocalMin, walkMin, weights) {
+  const series = {}; for (const [k, h] of Object.entries(data.models)) series[k] = makeSeries(h);
+  const probGet = data.prob ? makeSeries(data.prob) : null;
+  const names = Object.keys(series);
+  const firstT = localMin((Object.values(data.models)[0] || data.prob).time[0]);
+  const todayStart = Math.floor(nowLocalMin / 1440) * 1440;
+  const days = [];
+  for (let d = 0; d < 8 && days.length < CFG.weekdays; d++) {
+    const day0 = todayStart + d * 1440;
+    if (day0 < firstT) continue;
+    const dow = new Date(day0 * 60000).getUTCDay();
+    if (dow === 0 || dow === 6) continue;
+    const slots = [];
+    for (let s = CFG.firstStart; s <= CFG.lastStart; s += CFG.step) {
+      const t0 = day0 + s;
+      if (t0 + walkMin < nowLocalMin) continue; // already over
+      const samples = [0, walkMin / 2, walkMin].map(o => t0 + o);
+      const sunMid = sunPos((t0 + walkMin / 2 - data.offsetSec / 60) * 60000, lat, lon);
+      const perModel = {};
+      for (const nm of names) {
+        const pts = samples.map(m => pointScore(series[nm], m, sunPos((m - data.offsetSec / 60) * 60000, lat, lon)));
+        if (pts.some(x => x == null)) continue;
+        const avg = k => pts.reduce((a, x) => a + x[k], 0) / pts.length;
+        perModel[nm] = { score: avg("score"), S: avg("S"), light: avg("light"), C: avg("C"), p: Math.max(...pts.map(x => x.p)), at: avg("at"), gust: Math.max(...pts.map(x => x.gust)), L: avg("L"), M: avg("M"), H: avg("H") };
+      }
+      const ms = Object.keys(perModel);
+      if (!ms.length) continue;
+      const wsum = ms.reduce((a, k) => a + ((weights && weights[k]) || 1), 0);
+      const mean = k => ms.reduce((a, nm) => a + perModel[nm][k] * ((weights && weights[nm]) || 1), 0) / wsum;
+      let pp = null;
+      if (probGet) { const v = samples.map(m => probGet("precipitation_probability", m)).filter(x => x != null); if (v.length) pp = Math.max(...v); }
+      let score = mean("score");
+      if (pp != null && pp > 20) score *= 1 - 0.7 * (pp - 20) / 80;
+      const sArr = ms.map(nm => perModel[nm].S), sMean = sArr.reduce((a, b) => a + b, 0) / sArr.length;
+      const sd = Math.sqrt(sArr.reduce((a, b) => a + (b - sMean) ** 2, 0) / sArr.length);
+      let conf = ms.length >= 3 && sd < 0.12 ? "high" : sd < 0.25 ? "medium" : "low";
+      if (d >= 3 && conf === "high") conf = "medium";
+      const precipMax = Math.max(...ms.map(nm => perModel[nm].p));
+      const wet = (pp != null && pp >= CFG.wetProb) || mean("p") >= CFG.wetMm;
+      slots.push({ start: s, t0, score, sun: mean("S"), light: mean("light"), comfort: mean("C"), at: mean("at"), gust: Math.max(...ms.map(nm => perModel[nm].gust)),
+        L: mean("L"), M: mean("M"), H: mean("H"), precip: mean("p"), precipMax, pp, wet, conf, sd, nModels: ms.length, perModel, sunEl: sunMid.el, sunAz: sunMid.az });
+    }
+    // top N with min gap; dry first
+    const pickFrom = arr => { const out = []; for (const x of [...arr].sort((a, b) => b.score - a.score)) { if (out.length >= CFG.topN) break; if (out.every(o => Math.abs(o.start - x.start) >= CFG.minGap)) out.push(x); } return out; };
+    const dry = slots.filter(x => !x.wet && x.sunEl > -1);
+    let top = pickFrom(dry.length ? dry : slots);
+    if (top.length < CFG.topN && dry.length) { // fill with wet ones if needed
+      for (const x of pickFrom(slots.filter(x => x.wet))) { if (top.length >= CFG.topN) break; if (top.every(o => Math.abs(o.start - x.start) >= CFG.minGap)) top.push(x); }
+    }
+    for (const x of top) x.reason = reason(x);
+    const dt = new Date(day0 * 60000);
+    days.push({ day0, offset: d, date: dt.toISOString().slice(0, 10), dow, slots, top, allWet: !dry.length && slots.length > 0 });
+  }
+  return { days };
+}
+
+function label(score) { return score >= 70 ? "Great" : score >= 50 ? "Good" : score >= 30 ? "Fair" : "Dull"; }
+
+function reason(x) {
+  const parts = [];
+  if (x.wet) parts.push(x.pp != null ? `rain likely (${Math.round(x.pp)}%)` : `rain ~${x.precip.toFixed(1)} mm/h`);
+  if (x.sunEl <= 0) parts.push("after sunset");
+  else if (x.wet) {}
+  else if (x.sun >= 0.65) parts.push("clear spell");
+  else if (x.sun >= 0.35) parts.push(x.L > 0.5 ? "broken low cloud, sunny breaks" : "partly sunny");
+  else if (x.L > 0.7) parts.push("low cloud deck");
+  else if (x.H > 0.6 && x.L < 0.3 && x.M < 0.3) parts.push("hazy high cloud");
+  else parts.push(x.light >= 0.5 ? "bright but no direct sun" : "grey");
+  if (!x.wet && x.pp != null && x.pp >= 30) parts.push(`${Math.round(x.pp)}% shower risk`);
+  if (x.at != null && x.at < 0) parts.push(`feels ${Math.round(x.at)}°`);
+  if (x.gust > 14) parts.push(`gusts ${Math.round(x.gust)} m/s`);
+  if (x.sunEl > 0) parts.push(`sun ${Math.round(x.sunEl)}° ${compass(x.sunAz)}`);
+  return parts.join(" · ");
+}
+
+// Logbook → per-model weights (inverse mean abs error of predicted sun vs observed)
+const OBS_VAL = { sunny: 1, bright: 0.45, grey: 0.05, wet: 0 };
+function modelWeights(log) {
+  const rows = (log || []).filter(r => r.models && Object.keys(r.models).length);
+  if (rows.length < CFG.learnAfter) return null;
+  const err = {}, n = {};
+  for (const r of rows) for (const [m, s] of Object.entries(r.models)) { err[m] = (err[m] || 0) + Math.abs(s - OBS_VAL[r.obs]); n[m] = (n[m] || 0) + 1; }
+  const w = {}; for (const m in err) w[m] = 1 / (err[m] / n[m] + 0.1);
+  const mean = Object.values(w).reduce((a, b) => a + b, 0) / Object.keys(w).length;
+  for (const m in w) w[m] /= mean;
+  return w;
+}
+function modelAccuracy(log) {
+  const out = {}; for (const r of (log || [])) { if (!r.models) continue; for (const [m, s] of Object.entries(r.models)) { out[m] = out[m] || { e: 0, n: 0 }; out[m].e += Math.abs(s - OBS_VAL[r.obs]); out[m].n++; } }
+  return out;
+}
+
+// Open-ground suggestion from OpenStreetMap features
+function bearing(lat1, lon1, lat2, lon2) {
+  const p1 = rad(lat1), p2 = rad(lat2), dl = rad(lon2 - lon1);
+  return (deg(Math.atan2(Math.sin(dl) * Math.cos(p2), Math.cos(p1) * Math.sin(p2) - Math.sin(p1) * Math.cos(p2) * Math.cos(dl))) + 360) % 360;
+}
+function dist(lat1, lon1, lat2, lon2) {
+  const R = 6371000, dp = rad(lat2 - lat1), dl = rad(lon2 - lon1);
+  const a = Math.sin(dp / 2) ** 2 + Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(dl / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+function kindOf(t) {
+  if (t.natural === "water" || t.water) return "water"; if (t.natural === "beach") return "beach";
+  if (t.leisure === "park") return "park"; if (t.leisure === "nature_reserve") return "reserve";
+  if (t.leisure === "recreation_ground") return "green";
+  if (t.landuse === "meadow" || t.landuse === "grass" || t.natural === "grassland" || t.natural === "heath") return "meadow";
+  if (t.landuse === "farmland") return "field"; return "open ground";
+}
+function pickOpenSpace(elements, lat, lon, sunAz, maxWalkM) {
+  const cands = [];
+  for (const e of elements || []) {
+    const c = e.center || (e.lat != null ? { lat: e.lat, lon: e.lon } : null); if (!c || !e.tags) continue;
+    const dm = dist(lat, lon, c.lat, c.lon); if (dm < 80 || dm > maxWalkM) continue;
+    const b = bearing(lat, lon, c.lat, c.lon);
+    const off = Math.abs(((b - sunAz + 540) % 360) - 180);
+    if (off > 75) continue;
+    const kind = kindOf(e.tags);
+    const bonus = (kind === "water" || kind === "beach" ? 0.25 : 0) + (e.tags.name ? 0.15 : 0);
+    const score = (1 - off / 75) * 0.5 + (1 - dm / maxWalkM) * 0.5 + bonus;
+    cands.push({ name: e.tags.name || null, kind, dm, b, off, score });
+  }
+  cands.sort((a, b) => b.score - a.score);
+  return cands[0] || null;
+}
+
+if (typeof module !== "undefined") module.exports = { CFG, sunPos, compass, clearSkyGHI, makeSeries, pointScore, analyse, label, reason, modelWeights, pickOpenSpace, localMin, fmtHM, HOURLY_VARS };
+
+</script>
+<script>
+// ===== UI =====
+const $ = id => document.getElementById(id);
+const PRE = "ll_";
+const store = {
+  get(k) { try { const v = localStorage.getItem(PRE + k); if (v != null) return JSON.parse(v); } catch (e) {} return (window.__STORE && window.__STORE[k] !== undefined) ? window.__STORE[k] : null; },
+  set(k, v) { try { localStorage.setItem(PRE + k, JSON.stringify(v)); } catch (e) {} if (window.__STORE) window.__STORE[k] = v; if (window.__onSave) try { window.__onSave(k, v); } catch (e) {} }
+};
+const S = { walk: store.get("walk") || 25, day: 0, loc: null, data: null, res: null, place: {}, fetchedAt: null };
+
+function toast(t) { const el = $("toast"); el.textContent = t; el.classList.add("on"); setTimeout(() => el.classList.remove("on"), 1800); }
+const fmc = () => store.get("fmc") || CFG.fmc;
+
+// ---- location ----
+function getGPS() {
+  return new Promise(res => {
+    if (window.__LOC) return res({ ...window.__LOC, src: "gps" });
+    if (!navigator.geolocation) return res(null);
+    let done = false; const t = setTimeout(() => { if (!done) { done = true; res(null); } }, 9000);
+    navigator.geolocation.getCurrentPosition(p => { if (done) return; done = true; clearTimeout(t); res({ lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy, src: "gps" }); },
+      () => { if (done) return; done = true; clearTimeout(t); res(null); }, { enableHighAccuracy: false, timeout: 8000, maximumAge: 120000 });
+  });
+}
+async function locate(force) {
+  let l = force === "fmc" ? null : await getGPS();
+  if (!l) { const f = fmc(); l = { lat: f.lat, lon: f.lon, src: "fmc", label: f.label || "FMC" }; if (force !== "fmc") toast("No GPS — using FMC preset"); }
+  else store.set("lastGps", l);
+  S.loc = l; renderLoc(); return l;
+}
+function renderLoc() {
+  const l = S.loc; if (!l) return;
+  const where = l.src === "gps" ? `📍 <b>Here</b>${l.acc ? ` ±${Math.round(l.acc)} m` : ""}` : `🏢 <b>${(fmc().label || "FMC").split("·")[0].trim()}</b>`;
+  $("loc").innerHTML = `${where}<span style="flex:1"></span>` +
+    (l.src === "gps" ? `<button id="useFmc">Use FMC</button>` : `<button id="useGps">Use GPS</button>`) +
+    (l.src === "gps" ? `<button id="setFmc" title="Save this spot as your FMC preset">Set FMC here</button>` : "");
+  if ($("useFmc")) $("useFmc").onclick = () => refresh("fmc");
+  if ($("useGps")) $("useGps").onclick = () => refresh("gps");
+  if ($("setFmc")) $("setFmc").onclick = () => { store.set("fmc", { lat: l.lat, lon: l.lon, label: "FMC · saved spot" }); toast("FMC preset updated"); };
+}
+
+// ---- data ----
+const API = "https://api.open-meteo.com/v1/forecast";
+function stripSuffix(h, m) { const o = {}; for (const [k, v] of Object.entries(h)) o[k.endsWith("_" + m) ? k.slice(0, -m.length - 1) : k] = v; return o; }
+async function fetchForecast(lat, lon) {
+  const base = `latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}&timezone=auto&forecast_days=8&wind_speed_unit=ms`;
+  const reqs = CFG.models.map(m => fetch(`${API}?${base}&hourly=${HOURLY_VARS.join(",")}&models=${m}`).then(r => r.ok ? r.json() : Promise.reject(r.status)));
+  reqs.push(fetch(`${API}?${base}&hourly=precipitation_probability`).then(r => r.ok ? r.json() : Promise.reject(r.status)));
+  const out = await Promise.allSettled(reqs);
+  const data = { models: {}, prob: null, offsetSec: null };
+  out.forEach((o, i) => {
+    if (o.status !== "fulfilled" || !o.value.hourly) return;
+    if (data.offsetSec == null) data.offsetSec = o.value.utc_offset_seconds;
+    if (i < CFG.models.length) data.models[CFG.models[i]] = stripSuffix(o.value.hourly, CFG.models[i]);
+    else data.prob = o.value.hourly;
+  });
+  if (!Object.keys(data.models).length) throw new Error("No forecast models responded");
+  return data;
+}
+async function fetchPlaces(lat, lon) {
+  const key = `${lat.toFixed(3)},${lon.toFixed(3)}`, cache = store.get("places") || {};
+  if (cache[key] && Date.now() - cache[key].t < 7 * 864e5) return cache[key].els;
+  const r = 1300, a = `(around:${r},${lat},${lon})`;
+  const q = `[out:json][timeout:15];(way["leisure"~"^(park|nature_reserve|recreation_ground)$"]${a};relation["leisure"~"^(park|nature_reserve)$"]${a};way["natural"~"^(water|beach|grassland|heath)$"]${a};relation["natural"="water"]${a};way["landuse"~"^(meadow|grass|farmland)$"]${a};);out center tags 120;`;
+  const res = await fetch("https://overpass-api.de/api/interpreter", { method: "POST", body: "data=" + encodeURIComponent(q), headers: { "Content-Type": "application/x-www-form-urlencoded" } });
+  if (!res.ok) throw new Error("overpass " + res.status);
+  const els = (await res.json()).elements.map(e => ({ center: e.center || (e.lat ? { lat: e.lat, lon: e.lon } : null), tags: e.tags }));
+  const keys = Object.keys(cache); if (keys.length > 15) delete cache[keys[0]];
+  cache[key] = { t: Date.now(), els }; store.set("places", cache);
+  return els;
+}
+
+// ---- render ----
+const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const lab = s => label(Math.round(s));
+function ring(score) {
+  const r = 27, c = 2 * Math.PI * r, f = Math.max(0, Math.min(100, score)) / 100;
+  const col = { Great: "var(--sun)", Good: "var(--good)", Fair: "var(--fair)", Dull: "var(--dull)" }[lab(score)];
+  return `<svg class="ring" viewBox="0 0 64 64"><circle cx="32" cy="32" r="${r}" fill="none" stroke="var(--line)" stroke-width="6"/><circle cx="32" cy="32" r="${r}" fill="none" stroke="${col}" stroke-width="6" stroke-linecap="round" stroke-dasharray="${c * f} ${c}" transform="rotate(-90 32 32)"/><text x="32" y="38" text-anchor="middle" font-size="18" font-weight="700" fill="currentColor">${Math.round(score)}</text></svg>`;
+}
+function arrow(az) { return `<svg class="arrow" viewBox="0 0 30 30"><circle cx="15" cy="15" r="14" fill="var(--sun)" opacity=".2"/><g transform="rotate(${az} 15 15)"><path d="M15 4 L20 17 L15 14 L10 17 Z" fill="var(--sun)"/></g><text x="15" y="27" text-anchor="middle" font-size="6" fill="currentColor">N↑</text></svg>`; }
+const pct = x => Math.round(x * 100) + "%";
+function confTxt(x) { return { high: "High confidence", medium: "Medium confidence", low: "Low confidence — models disagree" }[x.conf] + ` · ${x.nModels} models`; }
+
+function render() {
+  const res = S.res; if (!res) return;
+  const days = res.days;
+  if (!days.length) { $("main").innerHTML = `<div class="card muted">No weekday slots left in the forecast window.</div>`; return; }
+  if (S.day >= days.length) S.day = 0;
+  $("tabs").innerHTML = days.map((d, i) => {
+    const best = d.top[0];
+    const nm = d.offset === 0 ? "Today" : d.offset === 1 ? "Tomorrow" : DOW[d.dow];
+    return `<button class="tab ${i === S.day ? "on" : ""}" data-i="${i}">${nm}<small>${d.date.slice(8)}/${d.date.slice(5, 7)}</small><span class="mini">${best ? (best.wet ? "🌧 " : best.sun >= .5 ? "☀️ " : best.sun >= .25 ? "⛅ " : "☁️ ") + fmtHM(best.start) : "—"}</span></button>`;
+  }).join("");
+  [...$("tabs").children].forEach(b => b.onclick = () => { S.day = +b.dataset.i; render(); });
+  const d = days[S.day];
+  if (!d.top.length) { $("main").innerHTML = `<div class="card muted">No slots left today between 09:00 and 15:30.</div>`; return; }
+  const b = d.top[0];
+  const lowSun = b.sunEl > 0 && b.sunEl < CFG.lowSun;
+  let tip = "";
+  if (b.sunEl > 0) {
+    const pl = S.place[d.date + b.start];
+    const where = pl === undefined ? `<span class="spin"></span> finding open ground…` : pl ? `Nearest open ${pl.kind === "open ground" ? "ground" : pl.kind} that way: <b>${pl.name || "unnamed " + pl.kind}</b>, ${Math.round(pl.dm / 10) * 10} m ${compass(pl.b)}.` : `No park or water within reach in that direction — pick the widest street running ${compass(b.sunAz)}.`;
+    tip = `<div class="tip">${arrow(b.sunAz)}<div>${lowSun ? `<b>Low sun (${Math.round(b.sunEl)}°)</b> — buildings and trees will shade most streets. Head <b>${compass(b.sunAz)}</b> toward open ground.` : `Sun ${Math.round(b.sunEl)}° high in the <b>${compass(b.sunAz)}</b>; most open streets get sun.`}<br>${where}</div></div>`;
+  }
+  const modelRows = Object.entries(b.perModel).map(([m, v]) => `<tr><td>${CFG.modelNames[m] || m}</td><td>${Math.round(v.score)}</td><td>${pct(v.S)}</td><td>${Math.round(v.L * 100)}%</td><td>${v.p.toFixed(1)}</td></tr>`).join("");
+  const hero = `<div class="card hero">
+    <div class="hero-top"><div>
+      <h2>${d.offset === 0 ? "Best walk today" : "Best walk"}</h2>
+      <div class="time">${fmtHM(b.start)} <span>– ${fmtHM(b.start + S.walk)}</span></div>
+      <div style="margin-top:8px"><span class="badge b-${b.wet ? "wet" : lab(b.score)}">${b.wet ? "Wet" : lab(b.score)}</span> <span class="conf">${confTxt(b)}</span></div>
+    </div>${ring(b.score)}</div>
+    <div class="reason">${b.reason}</div>
+    <div class="stats">
+      <div class="stat"><b>${pct(b.sun)}</b><small>direct sun</small></div>
+      <div class="stat"><b>${pct(b.light)}</b><small>brightness</small></div>
+      <div class="stat"><b>${b.pp != null ? Math.round(b.pp) + "%" : b.precip.toFixed(1)}</b><small>${b.pp != null ? "rain chance" : "mm rain"}</small></div>
+      <div class="stat"><b>${b.at != null ? Math.round(b.at) + "°" : "–"}</b><small>feels like</small></div>
+    </div>
+    ${tip}
+    ${d.allWet ? `<div class="warn">☔ Rain is likely all window — these are the least-wet options.</div>` : ""}
+    <details><summary>Model breakdown</summary><table><tr><th>Model</th><th>Score</th><th>Sun</th><th>Low cloud</th><th>mm</th></tr>${modelRows}</table></details>
+  </div>`;
+  const rest = d.top.slice(1).map((x, i) => `<div class="item"><div class="t">${fmtHM(x.start)}</div><div class="r"><span class="badge b-${x.wet ? "wet" : lab(x.score)}" style="font-size:11px">${x.wet ? "Wet" : lab(x.score)}</span> ${x.reason}<br><span style="font-size:11px">${x.conf} confidence · ${pct(x.sun)} sun</span></div><div class="s">${Math.round(x.score)}</div></div>`).join("");
+  const topSet = new Set(d.top.map(x => x.start));
+  const all = []; for (let s = CFG.firstStart; s <= CFG.lastStart; s += CFG.step) all.push(d.slots.find(x => x.start === s));
+  const strip = all.map(x => x ? `<i class="${topSet.has(x.start) ? "top" : x.wet ? "wet" : ""}" style="height:${Math.max(4, x.score)}%" title="${fmtHM(x.start)} · ${Math.round(x.score)}"></i>` : `<i style="opacity:.25"></i>`).join("");
+  $("main").innerHTML = hero +
+    `<div class="card"><h2>Other good times</h2><div class="list">${rest || `<div class="muted">No other slots.</div>`}</div></div>` +
+    `<div class="card"><h2>All start times · 09:00–15:30</h2><div class="strip">${strip}</div><div class="axis"><span>09</span><span>10</span><span>11</span><span>12</span><span>13</span><span>14</span><span>15</span></div><div class="muted" style="margin-top:6px">Orange = top 5 · blue = wet</div></div>`;
+  if (b.sunEl > 0 && S.place[d.date + b.start] === undefined) loadPlace(d, b);
+}
+async function loadPlace(d, b) {
+  const key = d.date + b.start; S.place[key] = undefined;
+  try {
+    const els = await fetchPlaces(S.loc.lat, S.loc.lon);
+    S.place[key] = pickOpenSpace(els, S.loc.lat, S.loc.lon, b.sunAz, S.walk * 35);
+  } catch (e) { S.place[key] = null; }
+  if (S.res && S.res.days[S.day] === d) render();
+}
+
+// ---- logbook ----
+const OBS = [["sunny", "☀️", "Sunny"], ["bright", "🌥", "Bright"], ["grey", "☁️", "Grey"], ["wet", "🌧", "Wet"]];
+function renderLog() {
+  const log = store.get("log") || [];
+  const today = S.res && S.res.days.find(d => d.offset === 0);
+  const nowL = Date.now() / 60000 + (S.data ? S.data.offsetSec / 60 : 60);
+  let opts = "";
+  if (today) {
+    const done = today.slots.filter(x => x.t0 <= nowL);
+    const pick = done.length ? done[done.length - 1] : null;
+    opts = today.slots.map(x => `<option value="${x.start}" ${pick && x.start === pick.start ? "selected" : ""}>${fmtHM(x.start)}</option>`).join("");
+  }
+  const acc = modelAccuracy(log), w = modelWeights(log);
+  const accRows = Object.keys(acc).length ? `<table><tr><th>Model</th><th>Avg error</th><th>Weight</th></tr>${Object.entries(acc).sort((a, b) => a[1].e / a[1].n - b[1].e / b[1].n).map(([m, v]) => `<tr><td>${CFG.modelNames[m] || m}</td><td>${Math.round(v.e / v.n * 100)}%</td><td>${w ? w[m].toFixed(2) + "×" : "1×"}</td></tr>`).join("")}</table>` : "";
+  $("logCard").innerHTML = `<h2>How was your walk?</h2>
+    ${today ? `<div class="row muted">Started at <select id="logAt">${opts}</select> today</div>
+    <div class="logbtns">${OBS.map(([k, e, t]) => `<button data-k="${k}"><span>${e}</span>${t}</button>`).join("")}</div>` : `<div class="muted">Logging opens on weekdays, for today's walk.</div>`}
+    <details><summary>${log.length} walk${log.length === 1 ? "" : "s"} logged · ${w ? "model weighting ON" : `weighting starts after ${CFG.learnAfter}`}</summary>
+      ${log.slice(-6).reverse().map(r => `<div class="muted">${r.date} ${fmtHM(r.start)} — ${OBS.find(o => o[0] === r.obs)[1]} vs forecast ${Math.round(r.score)} (${Math.round(r.sun * 100)}% sun)</div>`).join("")}
+      ${accRows}
+      ${log.length ? `<div class="row" style="margin-top:8px"><button id="undo">Undo last</button><button id="copyLog">Copy log</button></div>` : ""}
+    </details>`;
+  document.querySelectorAll(".logbtns button").forEach(btn => btn.onclick = () => {
+    const st = +$("logAt").value, x = today.slots.find(s => s.start === st); if (!x) return;
+    const models = {}; for (const [m, v] of Object.entries(x.perModel)) models[m] = +v.S.toFixed(3);
+    const lg = store.get("log") || []; const date = today.date;
+    const i = lg.findIndex(r => r.date === date && r.start === st);
+    const row = { date, start: st, obs: btn.dataset.k, score: +x.score.toFixed(1), sun: +x.sun.toFixed(3), models, lat: +S.loc.lat.toFixed(3), lon: +S.loc.lon.toFixed(3) };
+    if (i >= 0) lg[i] = row; else lg.push(row);
+    store.set("log", lg); toast("Logged — thanks"); renderLog();
+  });
+  if ($("undo")) $("undo").onclick = () => { const lg = store.get("log") || []; lg.pop(); store.set("log", lg); renderLog(); };
+  if ($("copyLog")) $("copyLog").onclick = async () => { try { await navigator.clipboard.writeText(JSON.stringify(store.get("log") || [])); toast("Log copied"); } catch (e) { toast("Copy not allowed here"); } };
+}
+
+function renderWalkSeg() {
+  $("walkSeg").innerHTML = [20, 25, 30].map(m => `<button class="${m === S.walk ? "on" : ""}" data-m="${m}">${m}′</button>`).join("");
+  [...$("walkSeg").children].forEach(b => b.onclick = () => { S.walk = +b.dataset.m; store.set("walk", S.walk); renderWalkSeg(); recompute(); });
+}
+function recompute() {
+  if (!S.data) return;
+  const nowL = Date.now() / 60000 + S.data.offsetSec / 60;
+  S.res = analyse(S.data, S.loc.lat, S.loc.lon, nowL, S.walk, modelWeights(store.get("log")));
+  render(); renderLog();
+}
+function renderFoot() {
+  const t = S.fetchedAt ? new Date(S.fetchedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—";
+  $("foot").innerHTML = `Forecast updated ${t} · <a href="#" id="rf">refresh</a><br>Weather: <a href="https://open-meteo.com/">Open-Meteo</a> (DMI, MET Norway, DWD, ECMWF; CC BY 4.0) · Places: © OpenStreetMap contributors`;
+  $("rf").onclick = e => { e.preventDefault(); refresh(S.loc && S.loc.src === "fmc" ? "fmc" : "gps"); };
+}
+async function refresh(mode) {
+  const cached = store.get("cache");
+  if (cached && !S.data) { S.data = cached.data; S.loc = cached.loc; S.fetchedAt = cached.at; renderLoc(); recompute(); renderFoot(); }
+  try {
+    const l = await locate(mode === "fmc" ? "fmc" : null);
+    S.place = {};
+    const data = await fetchForecast(l.lat, l.lon);
+    S.data = data; S.fetchedAt = Date.now();
+    store.set("cache", { data, loc: l, at: S.fetchedAt });
+    recompute(); renderFoot();
+  } catch (e) {
+    if (!S.data) $("main").innerHTML = `<div class="card">Couldn't load the forecast (${e.message || e}). Check your connection and <a href="#" onclick="refresh();return false">try again</a>.</div>`;
+    else toast("Offline — showing last forecast");
+  }
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden && S.fetchedAt && Date.now() - S.fetchedAt > 20 * 60000) refresh(S.loc && S.loc.src === "fmc" ? "fmc" : "gps"); });
+renderWalkSeg(); renderFoot(); refresh();
+</script>
+</body>
+</html>
