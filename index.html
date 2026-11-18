@@ -355,7 +355,7 @@ if (typeof module !== "undefined") module.exports = { CFG, sunPos, compass, clea
 </script>
 <script>
 // ===== UI =====
-const APP_VERSION = "2.0 · 18 Nov";
+const APP_VERSION = "2.1 · 18 Nov";
 // Open ground comes from places.json (prebuilt from OpenStreetMap); live Overpass calls timed out from iPhone in v1.2–v1.5
 const LIVE_MAP = true;
 const $ = id => document.getElementById(id);
@@ -377,21 +377,24 @@ function getGPS() {
     if (!navigator.geolocation) return res(null);
     let done = false; const t = setTimeout(() => { if (!done) { done = true; res(null); } }, 9000);
     navigator.geolocation.getCurrentPosition(p => { if (done) return; done = true; clearTimeout(t); res({ lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy, src: "gps" }); },
-      () => { if (done) return; done = true; clearTimeout(t); res(null); }, { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 });
+      err => { if (done) return; done = true; clearTimeout(t); S.gpsErr = err && err.code; res(null); }, { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 });
   });
 }
 async function locate(force) {
   let l = force === "fmc" ? null : await getGPS();
-  if (!l) { const f = fmc(); l = { lat: f.lat, lon: f.lon, src: "fmc", label: f.label || "FMC" }; if (force !== "fmc") toast("No GPS — using FMC preset"); }
-  else store.set("lastGps", l);
+  if (!l) { const f = fmc(); l = { lat: f.lat, lon: f.lon, src: "fmc", label: f.label || "FMC", denied: force !== "fmc" && S.gpsErr === 1 }; if (force !== "fmc") toast(S.gpsErr === 1 ? "Location blocked — using FMC" : "No GPS — using FMC"); }
+  else { S.gpsErr = null; store.set("lastGps", l); }
   S.loc = l; renderLoc(); if (S.res) renderSpots(); return l;
 }
 function renderLoc() {
   const l = S.loc; if (!l) return;
+  if ($("gpsHelp")) $("gpsHelp").remove();
   const where = l.src === "gps" ? `📍 <b>Here</b>${l.acc ? (l.acc > 1000 ? ` <span style="color:var(--fair)">±${Math.round(l.acc / 1000)} km — approximate</span>` : ` ±${Math.round(l.acc)} m`) : ""}` : `🏢 <b>${(fmc().label || "FMC").split("·")[0].trim()}</b>`;
   $("loc").innerHTML = `${where}<span style="flex:1"></span>` +
     (l.src === "gps" ? `<button id="useFmc">Use FMC</button>` : `<button id="useGps">Use GPS</button>`) +
     "";
+  if (l.denied) $("loc").insertAdjacentHTML("afterend", `<div id="gpsHelp" class="tip" style="margin-top:8px;display:block;font-size:13px"><b>Location is blocked for this app.</b> The home-screen app uses Safari's location permission:<br>1. Settings → Privacy &amp; Security → Location Services → <b>Safari Websites</b> → <b>While Using the App</b>, Precise Location on.<br>2. Settings → Apps → Safari → <b>Location</b> → <b>Ask</b> or <b>Allow</b>.<br>3. Close this app fully (swipe it away), reopen, tap <b>Use GPS</b> and choose Allow.<br>Still blocked? Delete the home-screen icon and add it again from Safari.</div>`);
+  else if ($("gpsHelp")) $("gpsHelp").remove();
   if ($("useFmc")) $("useFmc").onclick = () => refresh("fmc");
   if ($("useGps")) $("useGps").onclick = () => refresh("gps");
 }
