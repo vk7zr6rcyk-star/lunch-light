@@ -351,6 +351,7 @@ if (typeof module !== "undefined") module.exports = { CFG, sunPos, compass, clea
 </script>
 <script>
 // ===== UI =====
+const APP_VERSION = "1.4 · 18 Nov";
 const $ = id => document.getElementById(id);
 const PRE = "ll_";
 const store = {
@@ -410,8 +411,8 @@ async function fetchForecast(lat, lon) {
 }
 const OVERPASS = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter", "https://overpass.private.coffee/api/interpreter"];
 async function overpass(q) {
-  // query all mirrors in parallel; first good answer wins; 10 s cap
-  const ac = new AbortController(), to = setTimeout(() => ac.abort(), 10000);
+  // query all mirrors in parallel; first good answer wins; 20 s cap
+  const ac = new AbortController(), to = setTimeout(() => ac.abort(), 20000);
   const errs = [];
   const tries = OVERPASS.map(url => fetch(url, { method: "POST", body: "data=" + encodeURIComponent(q), headers: { "Content-Type": "application/x-www-form-urlencoded" }, signal: ac.signal })
     .then(r => r.ok ? r.json() : Promise.reject(new Error(new URL(url).host + " HTTP " + r.status)))
@@ -423,11 +424,12 @@ async function overpass(q) {
 async function fetchPlaces(lat, lon) {
   const key = `${lat.toFixed(3)},${lon.toFixed(3)}`, cache = store.get("places3") || {};
   if (cache[key] && Date.now() - cache[key].t < 7 * 864e5) return cache[key].els;
-  const r = 1300, a = `(around:${r},${lat},${lon})`;
-  const body = `(way["leisure"~"^(park|nature_reserve|recreation_ground)$"]${a};relation["leisure"~"^(park|nature_reserve)$"]${a};way["natural"~"^(water|beach|grassland|heath)$"]${a};relation["natural"="water"]${a};way["landuse"~"^(meadow|grass|farmland)$"]${a};);`;
+  const r = 1000, a = `(around:${r},${lat},${lon})`;
+  // ways only: relation look-ups with "around" are expensive and were making the servers time out (HTTP 502)
+  const body = `(way["leisure"~"^(park|nature_reserve|recreation_ground)$"]${a};way["natural"~"^(water|beach|grassland|heath)$"]${a};way["landuse"~"^(meadow|grass|farmland)$"]${a};);`;
   let j;
-  try { j = await overpass(`[out:json][timeout:12];${body}out tags bb 120;`); }          // bounding boxes (nearest edge)
-  catch (e) { j = await overpass(`[out:json][timeout:12];${body}out tags center 120;`); } // fallback: centres only
+  try { j = await overpass(`[out:json][timeout:20];${body}out tags bb 120;`); }          // bounding boxes (nearest edge)
+  catch (e) { j = await overpass(`[out:json][timeout:20];${body}out tags center 120;`); } // fallback: centres only
   const els = (j.elements || []).map(e => ({ bounds: e.bounds || null, center: e.center || (e.lat ? { lat: e.lat, lon: e.lon } : null), tags: e.tags }));
   const keys = Object.keys(cache); if (keys.length > 15) delete cache[keys[0]];
   cache[key] = { t: Date.now(), els }; store.set("places3", cache);
@@ -560,7 +562,7 @@ function recompute() {
 }
 function renderFoot() {
   const t = S.fetchedAt ? new Date(S.fetchedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—";
-  $("foot").innerHTML = `Forecast updated ${t} · <a href="#" id="rf">refresh</a><br>Weather: <a href="https://open-meteo.com/">Open-Meteo</a> (DMI, MET Norway, DWD, ECMWF; CC BY 4.0) · Places: © OpenStreetMap contributors`;
+  $("foot").innerHTML = `<b>Lunch Light v${APP_VERSION}</b><br>Forecast updated ${t} · <a href="#" id="rf">refresh</a><br>Weather: <a href="https://open-meteo.com/">Open-Meteo</a> (DMI, MET Norway, DWD, ECMWF; CC BY 4.0) · Places: © OpenStreetMap contributors`;
   $("rf").onclick = e => { e.preventDefault(); refresh(S.loc && S.loc.src === "fmc" ? "fmc" : "gps"); };
 }
 async function refresh(mode) {
