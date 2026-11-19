@@ -3,9 +3,6 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Lunch Light">
 <meta name="theme-color" content="#14110d">
 <link rel="manifest" href="manifest.webmanifest">
@@ -355,7 +352,7 @@ if (typeof module !== "undefined") module.exports = { CFG, sunPos, compass, clea
 </script>
 <script>
 // ===== UI =====
-const APP_VERSION = "2.2 · 19 Nov";
+const APP_VERSION = "2.3 · 19 Nov";
 // Open ground comes from places.json (prebuilt from OpenStreetMap); live Overpass calls timed out from iPhone in v1.2–v1.5
 const LIVE_MAP = true;
 const $ = id => document.getElementById(id);
@@ -398,7 +395,10 @@ function renderLoc() {
   $("loc").innerHTML = `${where}<span style="flex:1"></span>` +
     (l.src === "gps" ? `<button id="useFmc">Use FMC</button>` : `<button id="useGps">Use GPS</button>`) +
     "";
-  if (l.denied) $("loc").insertAdjacentHTML("afterend", `<div id="gpsHelp" class="tip" style="margin-top:8px;display:block;font-size:13px"><b>Location is blocked for this app.</b> The home-screen app uses Safari's location permission:<br>1. Settings → Privacy &amp; Security → Location Services → <b>Safari Websites</b> → <b>While Using the App</b>, Precise Location on.<br>2. Settings → Apps → Safari → <b>Location</b> → <b>Ask</b> or <b>Allow</b>.<br>3. Close this app fully (swipe it away), reopen, tap <b>Use GPS</b> and choose Allow.<br>Still blocked? Delete the home-screen icon and add it again from Safari.<div id="gpsDiag" style="font-size:11px;opacity:.7;margin-top:6px"></div></div>`);
+  const standalone = (window.matchMedia && matchMedia("(display-mode: standalone)").matches) || navigator.standalone === true;
+  if (l.denied) $("loc").insertAdjacentHTML("afterend", `<div id="gpsHelp" class="tip" style="margin-top:8px;display:block;font-size:13px">${standalone
+    ? `<b>Location is blocked in the full-screen home-screen app.</b> iOS keeps a separate, stuck permission for it. Fix: delete this home-screen icon, open the link in Safari, tap Share → <b>Add to Home Screen</b> and switch <b>“Open as Web App” off</b> if you see it. The icon will then open Lunch Light in Safari, where GPS works.`
+    : `<b>Location is blocked for this site.</b> Tap <b>aA</b> in Safari's address bar → <b>Website Settings</b> → <b>Location</b> → <b>Allow</b>. Also check Settings → Privacy &amp; Security → Location Services → <b>Safari Websites</b> → While Using the App.`}<div id="gpsDiag" style="font-size:11px;opacity:.7;margin-top:6px"></div></div>`);
   if (l.denied) diagGps();
   else if ($("gpsHelp")) $("gpsHelp").remove();
   if ($("useFmc")) $("useFmc").onclick = () => refresh("fmc");
